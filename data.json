@@ -1,6 +1,6 @@
 {
     "company_info": {
-        "name": "ahmed",
+        "name": "الكديديس",
         "phone": "23234232",
         "permit_number": "223232323",
         "tax_number": "232323",
@@ -15,28 +15,28 @@
         ],
         "documents": [
             {
-                "name": "ahmed",
-                "path": "D:/windows_app/windows_app/static/json/accounts.json"
-            },
-            {
                 "name": "header",
-                "path": "D:/windows_app/windows_app/static/images/header_logo.png"
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
             },
             {
                 "name": "footer",
-                "path": "D:/windows_app/windows_app/static/images/footer.png"
-            },
-            {
-                "name": "logo",
-                "path": "D:/windows_app/windows_app/static/images/Picture1.png"
-            },
-            {
-                "name": "water_mark",
-                "path": "D:/windows_app/windows_app/static/images/logo.jpeg"
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
             },
             {
                 "name": "fonts",
-                "path": "D:/windows_app/windows_app/static/fonts/Amiri/Amiri-Regular.ttf"
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/fonts/Amiri/Amiri-Regular.ttf"
+            },
+            {
+                "name": "logo",
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/Picture1.png"
+            },
+            {
+                "name": "water_mark",
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/logo.jpeg"
+            },
+            {
+                "name": "ahmed",
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
             }
         ]
     },

@@ -1176,7 +1176,6 @@ class AddAccountWindow(tk.Frame):
 class AddFileWindow(Frame):
     def __init__(self, master, main_app):
         super().__init__(master)
-        self.files = []
         self.create_file_fields()
 
         self.main_app = main_app
@@ -1186,7 +1185,6 @@ class AddFileWindow(Frame):
             row=0, column=1, padx=10, pady=10)
         self.file_name_entry = ttk.Entry(self)
         self.file_name_entry.grid(row=0, column=0, padx=10, pady=10)
-
         self.file_path = StringVar()
         ttk.Button(self, text="فتح الملف", command=self.browse_file).grid(
             row=1, column=1, padx=10, pady=10)
@@ -1194,9 +1192,9 @@ class AddFileWindow(Frame):
             row=1, column=0, padx=10, pady=10)
 
         ttk.Button(self, text="اضافة ملف", command=self.add_file).grid(
-            row=2, column=1, padx=10, pady=10)
-        ttk.Button(self, text="حفظ الملف", command=self.save_files).grid(
-            row=2, column=0, padx=10, pady=10)
+            row=2, columnspan=2, padx=10, pady=10)
+        
+        ttk.Button(self,text='حذف ملف',command=self.delete_file).grid(row=6,columnspan=2)
 
         self.tree = ttk.Treeview(self, bootstyle=PRIMARY)
         cols = ('اسم المستند', 'رابط المستند')
@@ -1206,19 +1204,32 @@ class AddFileWindow(Frame):
             self.tree.heading(col, text=col)
         self.load_documents()
 
+
+    def delete_file(self):
+        documents = load_data.company_info.documents
+        idx = self.tree.selection()
+        if idx:
+            name = self.tree.item(idx,'values')[0]
+            get_index(name,documents)
+            self.load_documents()
+            
+
     def browse_file(self):
         file_path = filedialog.askopenfilename()
         if file_path:
             self.file_path.set(file_path)
 
     def add_file(self):
-        file_info = {
-            'name': self.file_name_entry.get(),
-            'path': self.file_path.get()
-        }
-        self.files.append(file_info)
-        self.clear_entries()
-        self.display_files()
+        try:
+            file_info = {
+                'name': self.file_name_entry.get(),
+                'path': self.file_path.get()
+            }
+            add_document(load_data,**file_info)
+            self.clear_entries()
+            self.load_documents()
+        except Exception as e:
+            messagebox.showerror('error',e)
 
     def clear_entries(self):
         self.file_name_entry.delete(0, tk.END)
@@ -1232,16 +1243,13 @@ class AddFileWindow(Frame):
 
             ttk.Label(self, text="File Path").grid(row=idx + 2, column=0)
             ttk.Label(self, text=file['path']).grid(row=idx + 2, column=1)
-
-    def save_files(self):
-        for file in self.files:
-            add_document(load_data, **file)
-        messagebox.showinfo("Info", "Files saved successfully.")
-
+    
     def load_documents(self):
-        for acc in load_data.company_info.documents or []:
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        for doc in load_data.company_info.documents or []:
             self.tree.insert('', tk.END, values=(
-                acc.name, acc.path))
+                doc.name, doc.path))
 
 
 class AddConditionWindow(tk.Frame):

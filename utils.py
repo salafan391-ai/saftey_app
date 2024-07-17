@@ -122,6 +122,15 @@ class PlaceholderEntry(ttk.Entry):
             self.put_placeholder()
 
 
+def get_index(name,documents):
+    index = ''
+    for i in range(len(documents)):
+        if documents[i].name == name:
+            index += str(i)
+    documents.pop(int(index))
+    save_json_data(load_data,data_file_path)
+
+
 def get_images(name: str, data: object) -> str:
     filtered = list(filter(lambda x: x.name ==
                            name, data.company_info.documents))

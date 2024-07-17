@@ -9,6 +9,8 @@ from datetime import datetime
 from reportlab.lib.pagesizes import letter
 from database import SessionLocal
 from models import Order, Customer
+from utils import load_data, get_images
+
 
 session = SessionLocal()
 
@@ -52,7 +54,7 @@ class CreatePdf:
     def set_up_font(self):
         # تحميل الخط العربي
         pdfmetrics.registerFont(
-            TTFont('Arabic', 'D:/windows_app/windows_app/static/fonts/Amiri/Amiri-Regular.ttf'))
+            TTFont('Arabic', get_images('fonts',load_data)))
         self.c.setFont('Arabic', 12)
 
     def draw_arabic_text(self, text, x, y, font_size=12):
