@@ -7,17 +7,13 @@
         "logo": "D:/windows_app/windows_app/static/images/logo.jpeg",
         "accounts": [
             {
-                "bank_name": "الاهلي",
-                "account_fullname": "الكريديس",
-                "account_number": "287398233748",
-                "account_iban": "93842093439"
+                "bank_name": "hkgjhghjjg",
+                "account_fullname": "kjhgjkhjkhhk",
+                "account_number": "sa768768768686786",
+                "account_iban": "76876786"
             }
         ],
         "documents": [
-            {
-                "name": "header",
-                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
-            },
             {
                 "name": "footer",
                 "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
@@ -37,6 +33,14 @@
             {
                 "name": "ahmed",
                 "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/footer.png"
+            },
+            {
+                "name": "header",
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/header_logo.png"
+            },
+            {
+                "name": "car_blueprint",
+                "path": "/Users/amd/Downloads/windows_app/windows_app/static/images/pngwing.com (1).png"
             }
         ]
     },

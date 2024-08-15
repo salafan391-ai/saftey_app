@@ -432,14 +432,15 @@ def create_car_license(db: Session, car_id: int, serial_number: str, lisince_exp
         raise e
 
 
-def create_car_parts_detection(db: Session, car_id: int, driving_range: int, notes: str, status: str, is_valid: bool):
+def create_car_parts_detection(db: Session, car_id: int, driving_range: int, notes: str, status: str, is_valid: bool,michanic:str):
     try:
         car_parts_detection = CarPartsDetection(
             car_id=car_id,
             driving_range=driving_range,
             notes=notes,
             status=status,
-            is_valid=is_valid
+            is_valid=is_valid,
+            michanic = michanic
         )
         db.add(car_parts_detection)
         db.commit()
@@ -605,6 +606,10 @@ def create_users(session: Session, username: str, email: str, password_hash: str
     session.add(user)
     session.commit()
 
+def update_approval_status(db:Session,model,status,id):
+        status = db.query(model).filter_by(id=id).one()
+        status.status = status
+        db.commit()
 
 def get_active_cars(session: Session):
     cars = session.query(Car).all()

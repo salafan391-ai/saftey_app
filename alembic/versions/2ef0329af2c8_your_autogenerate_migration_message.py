@@ -1,8 +1,8 @@
-"""addedd tables
+"""Your_autogenerate_migration_message
 
-Revision ID: 749c2bc629cc
+Revision ID: 2ef0329af2c8
 Revises: 
-Create Date: 2024-06-08 17:23:05.129699
+Create Date: 2024-07-17 16:58:29.180130
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '749c2bc629cc'
+revision: str = '2ef0329af2c8'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -195,6 +195,7 @@ def upgrade() -> None:
     sa.Column('reason', sa.String(), nullable=True),
     sa.Column('status', sa.Enum('معتمد', 'مرفوض'), nullable=True),
     sa.Column('type', sa.Enum('مرض', 'أمر شخصي', 'آخر'), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -242,6 +243,7 @@ def upgrade() -> None:
     sa.Column('period', sa.Numeric(), nullable=False),
     sa.Column('reason', sa.String(), nullable=True),
     sa.Column('status', sa.Enum('معتمد', 'مرفوض'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ),
     sa.PrimaryKeyConstraint('id')
     )
@@ -257,6 +259,7 @@ def upgrade() -> None:
     sa.Column('amount', sa.Float(), nullable=False),
     sa.Column('reason', sa.String(), nullable=True),
     sa.Column('status', sa.Enum('معتمد', 'مرفوض'), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=True),
     sa.ForeignKeyConstraint(['employee_id'], ['employees.id'], ),
     sa.PrimaryKeyConstraint('id')
     )

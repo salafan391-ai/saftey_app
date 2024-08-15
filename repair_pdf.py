@@ -13,11 +13,13 @@ from models import Contract, Customer, Order, Visits, Maintenence
 from database import SessionLocal
 from reportlab.lib.units import inch
 import pandas as pd
+from utils import get_images,load_data
+
 
 
 def create_maintenence_pdf(id, output_file):
     pdfmetrics.registerFont(
-        TTFont('Arabic', 'D:/windows_app/windows_app/static/fonts/Amiri\Amiri-Regular.ttf'))
+        TTFont('Arabic', get_images('fonts',load_data)))
     session = SessionLocal()
     visits = session.query(Visits).filter_by(id=id).one()
     contract = session.query(Contract).filter_by(
@@ -160,11 +162,11 @@ def create_maintenence_pdf(id, output_file):
     def header_footer(canvas, doc):
         canvas.saveState()
         # Draw the header images
-        canvas.drawImage('D:/windows_app/windows_app/static/images/header_logo.png', 0,
+        canvas.drawImage(get_images('header',load_data), 0,
                          doc.pagesize[1] - 90, width=615, height=90)
-        canvas.drawImage('D:/windows_app/windows_app/static/images/Picture1.png', 10,
+        canvas.drawImage(get_images('logo',load_data), 10,
                          doc.pagesize[1] - 70, width=100, height=40)
-        canvas.drawImage('D:/windows_app/windows_app/static/images/footer.png',
+        canvas.drawImage(get_images('footer',load_data),
                          0, 0, width=615, height=90)
         canvas.restoreState()
 

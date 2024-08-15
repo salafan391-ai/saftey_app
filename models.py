@@ -103,6 +103,7 @@ class Vacation(Base):
     period = Column(Numeric, nullable=False)
     reason = Column(String, nullable=True)
     status = Column(Enum('معتمد', 'مرفوض'), nullable=True)
+    created_at = Column(DateTime, nullable=True, server_default=func.now())
     employee = relationship('Employee', back_populates='vacations')
 
     def __repr__(self):
@@ -119,6 +120,7 @@ class Permission(Base):
     reason = Column(String, nullable=True)
     status = Column(Enum('معتمد', 'مرفوض'), nullable=True)
     type = Column(Enum('مرض', 'أمر شخصي', 'آخر'), nullable=False)
+    created_at = Column(DateTime, nullable=True, server_default=func.now())
     employee = relationship('Employee', back_populates='permissions')
 
     def __repr__(self):
@@ -184,7 +186,9 @@ class WithdrawMoney(Base):
     amount = Column(Float, nullable=False)
     reason = Column(String, nullable=True)
     status = Column(Enum('معتمد', 'مرفوض'), nullable=True)
+    created_at = Column(DateTime, nullable=True, server_default=func.now())
     employee = relationship('Employee', back_populates='withdraw_money')
+
 
     def __repr__(self):
         return f"طلب مصروف {self.employee.fullname}\n المبلغ المطلوب {self.amount}\n سبب الطلب {self.reason}"
@@ -322,6 +326,7 @@ class CarPartsDetection(Base):
     status = Column(String, nullable=False)
     notes = Column(Text, nullable=True)
     is_valid = Column(Boolean, nullable=True, default=True)
+    michanic = Column(String,nullable=False)
 
 
 class CarDriver(Base):

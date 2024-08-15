@@ -17,7 +17,7 @@ from utils import load_data, get_images
 from pdf_utils import split_lines_process
 from deep_translator import GoogleTranslator
 
-rep_vars = {'أسبوع': 'one week',
+rep_vars = {'اسبوع': 'one week',
             'نصف شهر': 'half a month',
             'شهر': 'one month',
             'ثلاثة أشهر': '3 months',

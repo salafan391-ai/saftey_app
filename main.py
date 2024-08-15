@@ -8,7 +8,7 @@ from crud import create_customer, update_customer, car_detection_false, deduct_q
 from models import Customer, Base, Insurance, Permission, Notification, Inventory, Car, CarDriver, CarDriverCache, CarLisince, CarPartsDetection, CarYearlyDetection, User, Employee, Vacation, Visits, ToolRequest, WithdrawMoney
 from schema import CustomersModel, InventoryModel, MaintenenceModel, ContractModel
 from pydantic import ValidationError
-from database import engine, db_session
+from database import engine, db_session,get_db
 from crud import *
 from utils import *
 from datetime import time
@@ -16,14 +16,93 @@ from reciepts_pdf import CreatePdf, Product, get_inventory
 from conditions_pdf import create_setup_conditions
 from repair_pdf import create_maintenence_pdf
 from pdf_utils import translate_conditions, is_connected
+from sqlalchemy.orm import joinedload
+from PIL import Image, ImageTk, ImageGrab,ImageDraw
+from car_reports import CreatePdf
+import customtkinter
+from CTkTable import *
+from typing import Union,Callable
+from tkcalendar import Calendar
+import io
 
 # Ensure the database tables are created
 Base.metadata.create_all(bind=engine, checkfirst=True)
 
 
+
+class FloatSpinbox(customtkinter.CTkFrame):
+    def __init__(self, *args,
+                 width: int = 100,
+                 height: int = 32,
+                 step_size: Union[int, float] = 1,
+                 command: Callable = None,
+                 **kwargs):
+        super().__init__(*args, width=width, height=height, **kwargs)
+
+        self.step_size = step_size
+        self.command = command
+
+        self.configure(fg_color=("gray78", "gray28"))  # set frame color
+
+        self.grid_columnconfigure((0, 2), weight=0)  # buttons don't expand
+        self.grid_columnconfigure(1, weight=1)  # entry expands
+
+        self.subtract_button = customtkinter.CTkButton(self, text="-", width=height-6, height=height-6,
+                                                       command=self.subtract_button_callback)
+        self.subtract_button.grid(row=0, column=0, padx=(3, 0), pady=3)
+
+        self.entry = customtkinter.CTkEntry(self, width=width-(2*height), height=height-6, border_width=0)
+        self.entry.grid(row=0, column=1, columnspan=1, padx=3, pady=3, sticky="ew")
+
+        self.add_button = customtkinter.CTkButton(self, text="+", width=height-6, height=height-6,
+                                                  command=self.add_button_callback)
+        self.add_button.grid(row=0, column=2, padx=(0, 3), pady=3)
+
+        # default value
+        self.entry.insert(0, "0.0")
+
+    def add_button_callback(self):
+        if self.command is not None:
+            self.command()
+        try:
+            value = float(self.entry.get()) + self.step_size
+            self.entry.delete(0, "end")
+            self.entry.insert(0, value)
+        except ValueError:
+            return
+
+    def subtract_button_callback(self):
+        if self.command is not None:
+            self.command()
+        try:
+            value = float(self.entry.get()) - self.step_size
+            self.entry.delete(0, "end")
+            self.entry.insert(0, value)
+        except ValueError:
+            return
+
+    def get(self) -> Union[float, None]:
+        try:
+            return float(self.entry.get())
+        except ValueError:
+            return None
+
+    def set(self, value: float):
+        self.entry.delete(0, "end")
+        self.entry.insert(0, str(float(value)))
+
+
+
 def tk_success_message(obj_name: str):
     return messagebox.showinfo('نجاح العملية', f'تم إدخال {obj_name} بنجاح')
 
+
+def center_window(root, width, height):
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = (screen_width // 2) - (width // 2)
+    y = (screen_height // 2) - (height // 2)
+    root.geometry(f'{width}x{height}+{x}+{y}')
 
 def show_validation_errors(e):
     errors = e.errors()
@@ -51,7 +130,7 @@ def get_unselected_employees():
 db = db_session()
 get_customers = get_customer_names(db)
 
-TABLES = [Vacation, ToolRequest, WithdrawMoney, Permission, Notification]
+TABLES = [Vacation, ToolRequest, WithdrawMoney, Permission, Notification,Task]
 
 
 def get_user_data(db: Session, model, user_id):
@@ -59,22 +138,97 @@ def get_user_data(db: Session, model, user_id):
     return instance
 
 
-class LoginWindow(tk.Toplevel):
+class AddNewUsersWindow(tk.Toplevel):
+    def __init__(self, main_app):
+        super().__init__(main_app)
+        self.create_employee()
+        self.main_app = main_app
+        self.username_label = customtkinter.CTkLabel(self, text="اسم المستخدم")
+        self.username_label.grid(row=1, column=1, padx=10, pady=10)
+        self.username_entry = customtkinter.CTkEntry(self)
+        self.username_entry.grid(row=1, column=0, padx=10, pady=10)
+
+        self.email_label = customtkinter.CTkLabel(self, text="الايميل")
+        self.email_label.grid(row=2, column=1, padx=10, pady=10)
+        self.email_entry = customtkinter.CTkEntry(self)
+        self.email_entry.grid(row=2, column=0, padx=10, pady=10)
+
+        self.password_label = customtkinter.CTkLabel(self, text="كلمة المرور")
+        self.password_label.grid(row=3, column=1, padx=10, pady=10)
+        self.password_entry = customtkinter.CTkEntry(self, show="*")
+        self.password_entry.grid(row=3, column=0, padx=10, pady=10)
+
+        self.submit_button = customtkinter.CTkButton(
+            self, text="مستخدم جديد", command=self.create_or_update_user)
+        self.submit_button.grid(row=4, columnspan=2, padx=5, pady=5)
+
+
+    def create_employee(self):
+        birth_date = datetime(1900, 1, 1)
+        create_employee(db, 'admin', birth_date, '0533333333', 'admin', '3000')
+
+    def create_or_update_user(self):
+        username = self.username_entry.get()
+        email = self.email_entry.get()
+        password = self.password_entry.get()
+
+        try:
+            self.employee = db.query(Employee).all()[-1]
+            hashed_password = hash_password(password)
+
+            # Check if the user already exists
+            user = db.query(User).filter_by(username=username).first()
+            if user:
+                # Update the user's password and email
+                user.employee_id = self.employee.id
+                user.email = email
+                user.password_hash = hashed_password
+                messagebox.showinfo(
+                    'Success', f'User information updated for {self.employee.fullname}')
+            else:
+                # Create a new user
+                create_users(db, username=username, employee_id=self.employee.id,
+                             password_hash=hashed_password, email=email)
+                messagebox.showinfo(
+                    'Success', f'New user created for {self.employee.fullname}')
+
+            db.commit()
+
+            # Log in the new user
+            self.login_new_user(username, password)
+
+        except Exception as e:
+            db.rollback()
+            messagebox.showerror("Error", str(e))
+
+    def login_new_user(self, username, password):
+        user_record = db.query(User).filter_by(username=username).first()
+        if user_record and check_password(password, user_record.password_hash):
+            self.main_app.current_user = user_record
+            self.main_app.accessibility()
+            self.destroy()
+            self.main_app.deiconify()
+        else:
+            messagebox.showerror("Error", "Failed to log in new user")
+
+
+class LoginWindow(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
         self.title("Login")
-
-        tk.Label(self, text='اسم المستخدم', font=(
+        
+        self.geometry('600x400')
+        customtkinter.CTkLabel(self, text='اسم المستخدم', font=(
             'Amiri', 12)).pack(pady=5, padx=10)
-        self.user_entry = ttk.Entry(self)
+        self.user_entry = customtkinter.CTkEntry(self)
         self.user_entry.pack(pady=5, padx=10)
 
-        tk.Label(self, text='كلمة المرور', font=(
+        customtkinter.CTkLabel(self, text='كلمة المرور', font=(
             'Amiri', 12)).pack(pady=5, padx=10)
-        self.password_entry = ttk.Entry(self, show='*')
+        self.password_entry = customtkinter.CTkEntry(self, show='*')
         self.password_entry.pack(pady=10, padx=10)
 
-        ttk.Button(self, text='دخول', command=self.get_access).pack(
+        customtkinter.CTkButton(self, text='دخول', command=self.get_access).pack(
             pady=10, padx=10)
         self.main_app = main_app
 
@@ -102,18 +256,40 @@ class LoginWindow(tk.Toplevel):
             messagebox.showerror("خطأ", str(e))
 
 
-class MainApplication(tts.Window):
+class MainApplication(customtkinter.CTk):
     def __init__(self):
-        super().__init__(themename="superhero")
+        super().__init__()
         self.title("Management Systems")
         self.withdraw()
-        self.current_user = None  # Add attribute to store the current user
-        self.login = LoginWindow(self)
-        self.login.grab_set()
+        self.current_user = None
+        self.login = None
+        self.buttons = {}
         self.create_widgets()
+        self.check_users()
+
+        
+        self.db_session = db_session()  # Make sure this is a function that returns a session
+
+    def new_session(self):
+        # Make sure this method returns a session context
+        return next(get_db())  # Use next() to get the session object
+    
+    
+    def check_users(self):
+        no_users = db.query(User).all()
+        if len(no_users) > 0:
+            self.login = LoginWindow(self)
+            self.login.grab_set()
+        else:
+            self.login = AddNewUsersWindow(self)
+            self.login.grab_set()
+
+        
+
+            
 
     def create_widgets(self):
-        main_frame = Frame(self)
+        main_frame = customtkinter.CTkFrame(self)
         main_frame.pack(fill=tk.BOTH, expand=True)
         self.sales_window = None
         self.employee_window = None
@@ -132,13 +308,13 @@ class MainApplication(tts.Window):
         lst = list(zip(adms, funcs, icons))
         row, col = 0, 0
         for l, f, i in lst:
-            frame = Frame(main_frame, padding=(20, 20),
-                          borderwidth=2, relief="groove")
+            frame = customtkinter.CTkFrame(main_frame)
             frame.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-            ttk.Label(frame, text=l, font=larger_font).pack(padx=5, pady=5)
-            ttk.Label(frame, text=i, font=larger_font).pack(padx=5, pady=20)
-            self.button = ttk.Button(frame, text=l, command=f)
-            self.button.pack(padx=5, pady=50)
+            customtkinter.CTkLabel(frame, text=l).pack(padx=5, pady=5)
+            customtkinter.CTkLabel(frame, text=i).pack(padx=5, pady=20)
+            button = customtkinter.CTkButton(frame, text=l, command=f)
+            button.pack(padx=5, pady=50)
+            self.buttons[l] = button
 
             col += 1
             if col == 3:
@@ -154,9 +330,9 @@ class MainApplication(tts.Window):
         if self.current_user:
             if self.current_user.employee.career != 'admin':
                 if self.buttons['إدارة الاعتمادات'].cget('text') == 'إدارة الاعتمادات':
-                    self.buttons['إدارة الاعتمادات'].config(state=DISABLED)
+                    self.buttons['إدارة الاعتمادات'].config(state=tk.DISABLED)
                 if self.buttons['معلومات المؤسسة'].cget('text') == 'معلومات المؤسسة':
-                    self.buttons['معلومات المؤسسة'].config(state=DISABLED)
+                    self.buttons['معلومات المؤسسة'].config(state=tk.DISABLED)
 
     def open_sales_window(self):
         if self.sales_window is None or not self.sales_window.winfo_exists():
@@ -177,45 +353,80 @@ class MainApplication(tts.Window):
     def open_approval_window(self):
         if self.approval_window is None or not self.approval_window.winfo_exists():
             self.approval_window = ApprovalApplication(self)
+            self.approval_window.grab_set()
 
     def open_notification_window(self):
         if self.notification_window is None or not self.notification_window.winfo_exists():
             self.notification_window = NotificationApplication(self)
 
-
-class AddTaskWindow(Frame):
+class AddTaskAcceptence(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
         current_user = self.main_app.current_user
         self.user_employee_id = current_user.employee_id
-        for i in get_user_data(db, Task, self.user_employee_id):
+        tasks =  get_user_data(db, Task, self.user_employee_id)
+        self.label_tasks = []
+        self.button_tasks = []
+        for task in tasks:
+            if task.status == 'قيد القبول':
+                task_label = customtkinter.CTkLabel(self, text=task)
+                task_label.pack()
+                self.label_tasks.append(task_label)
+                
+                task_button = customtkinter.CTkButton(self, text='قبول', command=lambda: self.update_task_status(
+                    task,'قيد العمل'))
+                task_button.pack()
+                self.button_tasks.append(task_button)
 
-            tts.Label(self, text=i if i.status != 'قيد العمل' else i).pack()
+    def update_task_status(self, task, status):
+        try:
+            with self.main_app.new_session() as db:  # Assuming new_session is a context manager that provides a session
+                task = db.get(Task, task.id)
+                task.status = status
+                db.commit()
+                
+                # Assuming the label's text is the task's name or some unique identifier
+                for label_task,button_task in zip(self.label_tasks,self.button_tasks):
+                    if label_task.cget('text') == str(task):
+                        label_task.destroy()
+                        button_task.destroy()
+                        self.label_tasks.remove(label_task)
+                        self.button_tasks.remove(button_task)
+                        break
+                
+                messagebox.showinfo('نجاح العملية', 'تمت العملية بنجاح')
+        except Exception as e:
+            messagebox.showerror('خطأ', str(e))
 
-            def update_task_status(status):
-                try:
-                    status.status = 'قيد العمل'
-                    db.commit()
-                    messagebox.showinfo('نجاح العملية', 'تمت العملية بنجاح')
-                except Exception as e:
-                    messagebox.showerror('خطأ', e)
-            ttk.Button(self, text='قبول', command=lambda: update_task_status(
-                i)).pack() if i.status != 'قيد العمل' else None
-
-
-class AddEmployeeNotifications(Frame):
+class AddEmployeeNotifications(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
         current_user = self.main_app.current_user
+        
+
+        self.canvas = customtkinter.CTkCanvas(self)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.scrollbar = customtkinter.CTkScrollbar(self, command=self.canvas.yview)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.scrollable_frame = customtkinter.CTkFrame(self.canvas)
+        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
+
         row = 1
         column = 0
         max_columns = 3  # Number of items per row
+
         employee_id = current_user.employee_id
         employee = db.query(Employee).filter_by(id=employee_id).one()
 
-        ttk.Label(self, text=f"مرحبا {employee.fullname}").grid()
+        customtkinter.CTkLabel(self.scrollable_frame, text=f"مرحبا {employee.fullname}").grid(row=0, column=0, columnspan=max_columns, pady=10)
 
         for table in TABLES:
             for i, element in enumerate(get_user_data(db, table, employee.id)):
@@ -224,28 +435,30 @@ class AddEmployeeNotifications(Frame):
                 except AttributeError:
                     text = f"{element}"
                 except Exception as e:
-                    messagebox.showerror('error', e)
+                    messagebox.showerror('Error', str(e))
+                    continue
 
-                label = tk.Label(
-                    self, text=text, borderwidth=2, relief="groove")
-                label.grid(row=row, column=column,
-                           padx=10, pady=10, sticky='nsew')
+                label = customtkinter.CTkLabel(self.scrollable_frame, text=text)
+                label.grid(row=row, column=column, padx=10, pady=10, sticky='nsew')
 
                 column += 1
                 if column >= max_columns:
                     column = 0
                     row += 1
 
+    def _on_frame_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
-class NotificationApplication(Toplevel):
+
+class NotificationApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
         self.title("ادارة التنبيهات")
 
         self.main_app = main_app
 
-        self.main_frame = Frame(self)
-        self.tab_control = ttk.Notebook(self.main_frame, bootstyle=PRIMARY)
+        self.main_frame = customtkinter.CTkFrame(self)
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Define tab configuration: (tab_text, frame_class)
@@ -256,6 +469,7 @@ class NotificationApplication(Toplevel):
             ('طلب مستلزمات', AddToolRequestWindow),
             ('طلب مصروف', AddWithdrawMoney),
             ('اضافة مستند', AddDocumentsWindow),
+            ('المهام',AddTaskAcceptence)
         ]
 
         # Add tabs dynamically
@@ -263,25 +477,27 @@ class NotificationApplication(Toplevel):
             self.add_tab(tab_text, frame_class)
 
     def add_tab(self, tab_text, frame_class):
-        tab_frame = Frame(self.tab_control)
-        self.tab_control.add(tab_frame, text=tab_text)
-        tab_content = frame_class(tab_frame, self.main_app)
+        self.tab_control.add(tab_text)  # Add the tab by name
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_text))  # Assign the frame to the correct tab
+        tab_frame.pack(fill=tk.BOTH, expand=True)
+        tab_content = frame_class(tab_frame, self.main_app)  # Add the content
         tab_content.pack(fill=tk.BOTH, expand=True)
         self.tab_control.pack(expand=True, fill='both')
+
 
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 
 
-class EmployeeApplication(Toplevel):
+class EmployeeApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app,):
         super().__init__(main_app)
         self.title("الموارد البشرية")
 
         self.main_app = main_app
 
-        self.main_frame = Frame(self)
-        self.tab_control = ttk.Notebook(self.main_frame, bootstyle="primary")
+        self.main_frame = customtkinter.CTkFrame(self)
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
         self.tab_control.pack(expand=True, fill='both')
 
@@ -297,8 +513,10 @@ class EmployeeApplication(Toplevel):
             self.add_tab(tab_text, frame_class)
 
     def add_tab(self, tab_text, frame_class):
-        tab_frame = Frame(self.tab_control, bootstyle="primary")
-        self.tab_control.add(tab_frame, text=tab_text)
+        self.tab_control.add(tab_text)
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_text))
+        tab_frame.pack(fill=tk.BOTH,expand=True)
+        
         if tab_text == 'الموظفين':
             window_instance = frame_class(
                 tab_frame, self.main_app, self.update_employees)
@@ -311,20 +529,16 @@ class EmployeeApplication(Toplevel):
     def update_employees(self):
         # Update customers in AddOrderWindow
         ins_window = self.windows.get('التأمين الطبي')
-        permission_window = self.windows.get('الانذارات')
-        task_window = self.windows.get('إدارة المهام')
+        
         if ins_window:
-            ins_window.employee_name['values'] = get_employee_names(db)
-        if permission_window:
-            permission_window.person_combo['values'] = get_employee_names(db)
-        if task_window:
-            task_window.employee_entry['values'] = get_customer_names(db)
+            ins_window.employee_name.configure(values=get_employee_names(db))
+
 
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 
 
-class AddDocumentsWindow(Frame):
+class AddDocumentsWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
@@ -332,19 +546,19 @@ class AddDocumentsWindow(Frame):
         user = db.query(User).filter_by(id=user.id).one()
         self.user_name = user.employee.fullname
 
-        tk.Label(self, text=f"مرحبا {self.user_name}").pack()
+        customtkinter.CTkLabel(self, text=f"مرحبا {self.user_name}").pack()
 
-        tk.Label(self, text="اسم الوثيقة:").pack()
-        self.document_name_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="اسم الوثيقة:").pack()
+        self.document_name_entry = customtkinter.CTkEntry(self)
         self.document_name_entry.pack()
 
         self.documents = []
         self.docs_listbox = tk.Listbox(self)
         self.docs_listbox.pack()
 
-        ttk.Button(self, text="إضافة وثيقة",
+        customtkinter.CTkButton(self, text="إضافة وثيقة",
                    command=self.add_document).pack(pady=10)
-        ttk.Button(self, text="حفظ الوثائق",
+        customtkinter.CTkButton(self, text="حفظ الوثائق",
                    command=self.save_documents).pack(pady=10)
 
     def add_document(self):
@@ -381,51 +595,85 @@ class AddDocumentsWindow(Frame):
             self.destroy()
 
 
-class AddEmployeeWindow(Frame):
+class AddEmployeeWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app, update_employee):
         super().__init__(master)
 
         self.main_app = main_app
         self.update_employee = update_employee
+        # customtkinter.set_appearance_mode("system")
 
-        ttk.Label(self, text="اسم الموظف كاملا:").grid(
+
+        customtkinter.CTkLabel(self, text="اسم الموظف كاملا:").grid(
             row=0, column=1, padx=10, pady=10)
-        self.fullname_entry = ttk.Entry(self)
+        self.fullname_entry = customtkinter.CTkEntry(self)
         self.fullname_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="تاريخ الميلاد:").grid(
+        customtkinter.CTkLabel(self, text="تاريخ الميلاد:").grid(
             row=1, column=1, padx=10, pady=10)
         self.birthdate_entry = DateEntry(self, startdate=NOW)
         self.birthdate_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="رقم التواصل:").grid(
+        customtkinter.CTkLabel(self, text="رقم التواصل:").grid(
             row=2, column=1, padx=10, pady=10)
-        self.phone_entry = ttk.Entry(self)
+        self.phone_entry = customtkinter.CTkEntry(self)
         self.phone_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="المسمى الوظبفي:").grid(
+        customtkinter.CTkLabel(self, text="المسمى الوظبفي:").grid(
             row=3, column=1, padx=10, pady=10)
-        self.career_entry = ttk.Entry(self)
+        self.career_entry = customtkinter.CTkEntry(self)
         self.career_entry.grid(row=3, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="الراتب:").grid(row=4, column=1, padx=10, pady=10)
-        self.salary_entry = ttk.Spinbox(
-            self, from_=1, to=1000000, format='%02.2f')
+        customtkinter.CTkLabel(self, text="الراتب:").grid(row=4, column=1, padx=10, pady=10)
+        self.salary_entry = FloatSpinbox(
+            self)
         self.salary_entry.grid(row=4, column=0, padx=10, pady=10)
-        ttk.Button(self, text="إضافة موظف",
+        customtkinter.CTkButton(self, text="إضافة موظف",
                    command=self.add_employee).grid(row=5, columnspan=2, padx=10, pady=10)
+        
+        # self.refresh_employee_table()
 
         # Create a frame to hold the table
-        table_frame = Frame(self)
+    # def refresh_employee_table(self):
+    #     # Remove the old table if it exists
+    #     if hasattr(self, 'employee_table'):
+    #         self.employee_table.destroy()
+
+    #     # Query the database for the employee data
+    #     vals = db.query(Employee).all()[::-1]
+    #     vals = [[i.fullname, i.career, i.phone_number] for i in vals]
+    #     vals.insert(0, ['الاسم', 'الوظيفة', 'رقم التواصل'])
+
+    #     # Create a new table with the updated data
+    #     self.employee_table = CTkTable(self, row=6, column=3, values=vals)
+    #     self.employee_table.grid(row=6, columnspan=2)
+
+        # bg_color = self._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkFrame"]["fg_color"])
+        # text_color = self._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkLabel"]["text_color"])
+        # selected_color = self._apply_appearance_mode(customtkinter.ThemeManager.theme["CTkButton"]["fg_color"])
+
+        # treestyle = ttk.Style()
+        # treestyle.theme_use('default')
+        # treestyle.configure("Treeview", background=bg_color, foreground=text_color, fieldbackground=bg_color, borderwidth=0)
+        # treestyle.map('Treeview', background=[('selected', bg_color)], foreground=[('selected', selected_color)])
+        # self.bind("<<TreeviewSelect>>", lambda event: self.focus_set())
+
+        table_frame = customtkinter.CTkFrame(self)
         table_frame.grid(row=6, columnspan=2, padx=10, pady=10)
-        self.employee_table = ttk.Treeview(table_frame, bootstyle="primary")
+        self.employee_table = ttk.Treeview(table_frame)
 
         # Create the table
         self.employee_table = ttk.Treeview(table_frame, columns=(
-            "اسم الموظف", 'المسمى الوظيفي'), show='headings', bootstyle="primary")
+            "اسم الموظف", 'المسمى الوظيفي'), show='headings')
         self.employee_table.heading("اسم الموظف", text="Employee Name")
         self.employee_table.heading("المسمى الوظيفي", text="Employee Career")
         self.employee_table.grid(row=6, columnspan=2, padx=20, pady=20)
+        self.tree_scroll = customtkinter.CTkScrollbar(self, command=self.employee_table.yview)
+        self.tree_scroll.grid(row=5, column=2, sticky="ns")
+        self.employee_table.configure(yscrollcommand=self.tree_scroll.set)
+
+        self.employee_table.grid(row=6, column=0, columnspan=2, sticky='nsew', padx=20, pady=20)
+        self.tree_scroll.grid(row=6, column=2, sticky='ns')
         self.populate_employee_table()
 
         # Populate the table with employee names
@@ -447,7 +695,7 @@ class AddEmployeeWindow(Frame):
         self.fullname_entry.delete(0, tk.END)
         self.phone_entry.delete(0, tk.END)
         self.career_entry.delete(0, tk.END)
-        self.salary_entry.delete(0, tk.END)
+        self.salary_entry.set(0)
 
     def add_employee(self):
         try:
@@ -462,7 +710,6 @@ class AddEmployeeWindow(Frame):
             salary = float(self.salary_entry.get())
             create_employee(db, fullname, birthdate, phone, career, salary)
             self.clear_entries()
-            self.populate_employee_table()
             self.update_employee()
             messagebox.showinfo("Success", "Employee added successfully!")
         except ValueError:
@@ -472,23 +719,23 @@ class AddEmployeeWindow(Frame):
             self.destroy()
 
 
-class AddVacationWindow(Frame):
+class AddVacationWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
-        ttk.Label(self, text="بداية الإجازة: ").pack()
+        customtkinter.CTkLabel(self, text="بداية الإجازة: ").pack()
         self.start_date_entry = DateEntry(self, startdate=NOW)
         self.start_date_entry.pack()
 
-        ttk.Label(self, text="المدة: ").pack()
-        self.period_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="المدة: ").pack()
+        self.period_entry = customtkinter.CTkEntry(self)
         self.period_entry.pack()
 
-        ttk.Label(self, text="سبب الإجازة:").pack()
-        self.reason_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="سبب الإجازة:").pack()
+        self.reason_entry = customtkinter.CTkEntry(self)
         self.reason_entry.pack()
 
-        ttk.Button(self, text="اضافة إجازة",
+        customtkinter.CTkButton(self, text="اضافة إجازة",
                    command=self.add_vacation).pack(pady=10)
 
         cols = ('الموظف', 'بداية الإجازة', 'نهاية الإجازة', 'الحالة')
@@ -504,14 +751,24 @@ class AddVacationWindow(Frame):
         self.populate_tree()
 
     def populate_tree(self):
-        vacation_details = self.main_app.current_user.employee.vacations
+        # Clear the tree before populating it
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Retrieve vacation details
+        # vacation_details = self.main_app.current_user.employee.vacations
+        vacation_details = db.query(Vacation).all()
+        
+        # Insert new data into the tree
         for v in vacation_details:
-            self.tree.insert('', 'end', text=v.id, values=(
-                v.employee.fullname,
-                v.start_date,
-                timedelta(int(v.period))+v.start_date,
-                'تحت المراجعة' if v.status is None else v.status
-            ))
+            self.tree.insert(
+                '', 'end', text=v.id, values=(
+                    v.employee.fullname,
+                    v.start_date,
+                    (v.start_date + timedelta(days=int(v.period))),
+                    'تحت المراجعة' if v.status is None else v.status
+                )
+            )
 
     def add_vacation(self):
         startdate = get_date(self.start_date_entry)
@@ -530,31 +787,31 @@ class AddVacationWindow(Frame):
             self.destroy()
 
 
-class AddTaskWindow(Frame):
+class AddTaskWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text="الموظف المكلف بالمهمة").pack()
-        self.employee_entry = ttk.Combobox(self, values=get_employee_names(db))
+        customtkinter.CTkLabel(self, text="الموظف المكلف بالمهمة").pack()
+        self.employee_entry = customtkinter.CTkComboBox(self, values=get_employee_names(db))
         self.employee_entry.pack()
 
-        ttk.Label(self, text="وصف المهمة:").pack()
-        self.description_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="وصف المهمة:").pack()
+        self.description_entry = customtkinter.CTkEntry(self)
         self.description_entry.pack()
 
-        ttk.Label(self, text="تاريخ الانجاز:").pack()
+        customtkinter.CTkLabel(self, text="تاريخ الانجاز:").pack()
         self.due_date_entry = DateEntry(self, startdate=NOW)
         self.due_date_entry.pack()
 
-        ttk.Label(self, text="الاولوية:").pack()
+        customtkinter.CTkLabel(self, text="الاولوية:").pack()
         self.priority_var = tk.StringVar()
-        self.priority_combo = ttk.Combobox(
-            self, textvariable=self.priority_var, values=['منخفض', 'متوسط', 'عالي'])
+        self.priority_combo = customtkinter.CTkComboBox(
+            self, values=['منخفض', 'متوسط', 'عالي'])
         self.priority_combo.pack()
 
-        ttk.Button(self, text="اضافة مهمة",
+        customtkinter.CTkButton(self, text="اضافة مهمة",
                    command=self.add_task).pack(pady=10)
 
     def add_task(self):
@@ -579,29 +836,29 @@ class AddTaskWindow(Frame):
             self.destroy()
 
 
-class AddNotificationWindow(Frame):
+class AddNotificationWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text="المستهدف بالانذار").pack()
+        customtkinter.CTkLabel(self, text="المستهدف بالانذار").pack()
         self.person_var = tk.StringVar()
-        self.person_combo = ttk.Combobox(
-            self, textvariable=self.person_var, values=get_employee_names(db))
+        self.person_combo = customtkinter.CTkComboBox(
+            self, values=get_employee_names(db))
         self.person_combo.pack()
 
-        ttk.Label(self, text="الرسالة: ").pack()
-        self.message_entry = tk.Entry(self)
+        customtkinter.CTkLabel(self, text="الرسالة: ").pack()
+        self.message_entry = customtkinter.CTkEntry(self)
         self.message_entry.pack()
 
-        ttk.Label(self, text="نوع التحذير: ").pack()
+        customtkinter.CTkLabel(self, text="نوع التحذير: ").pack()
         self.type_var = tk.StringVar()
-        self.type_combo = ttk.Combobox(self, textvariable=self.type_var, values=[
+        self.type_combo = customtkinter.CTkComboBox(self, values=[
                                        'إنذار', 'تذكير', 'آخر'])
         self.type_combo.pack()
 
-        ttk.Button(self, text="اضافة رسالة",
+        customtkinter.CTkButton(self, text="اضافة رسالة",
                    command=self.add_notification).pack(pady=10)
 
     def add_notification(self):
@@ -629,25 +886,25 @@ class AddNotificationWindow(Frame):
             self.destroy()
 
 
-class AddToolRequestWindow(Frame):
+class AddToolRequestWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text="المنتج: ").pack()
-        self.item_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="المنتج: ").pack()
+        self.item_entry = customtkinter.CTkEntry(self)
         self.item_entry.pack()
 
-        ttk.Label(self, text="الكمية: ").pack()
-        self.quantity_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="الكمية: ").pack()
+        self.quantity_entry = customtkinter.CTkEntry(self)
         self.quantity_entry.pack()
 
-        tk.Label(self, text="السعر: ").pack()
-        self.cost_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="السعر: ").pack()
+        self.cost_entry = customtkinter.CTkEntry(self)
         self.cost_entry.pack()
 
-        ttk.Button(self, text="إضافة طلب",
+        customtkinter.CTkButton(self, text="إضافة طلب",
                    command=self.add_request_tool).pack(pady=10)
 
     def add_request_tool(self):
@@ -668,73 +925,73 @@ class AddToolRequestWindow(Frame):
         # Validate input if needed
 
 
-class AddPermissionWindow(Frame):
+class AddPermissionWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
 
-        ttk.Label(self, text="تاريخ الاستئذان: ").grid(
+        customtkinter.CTkLabel(self, text="تاريخ الاستئذان: ").grid(
             row=2, column=2, padx=10, pady=10)
         self.date_entry = DateEntry(self, startdate=NOW)
         self.date_entry.grid(row=2, column=1, padx=10, pady=10)
 
-        frame_start = tk.Frame(self, bd=2, relief='sunken')
+        frame_start = customtkinter.CTkFrame(self)
         frame_start.grid(row=3, column=1, columnspan=2, padx=10, pady=10)
-        ttk.Label(frame_start, text='وقت البدء').grid(
+        customtkinter.CTkLabel(frame_start, text='وقت البدء').grid(
             row=1, columnspan=6, padx=10, pady=10)
-        ttk.Label(frame_start, text="ساعة: ").grid(
+        customtkinter.CTkLabel(frame_start, text="ساعة: ").grid(
             row=2, column=6, padx=10, pady=10)
-        self.start_hour_entry = ttk.Spinbox(
-            frame_start, from_=0, to=23, wrap=True, format='%02.0f', width=5)
+        self.start_hour_entry = FloatSpinbox(
+            frame_start, width=150, step_size=3)
         self.start_hour_entry.grid(row=2, column=5, padx=10, pady=10)
 
-        ttk.Label(frame_start, text="دقيقة: ").grid(
+        customtkinter.CTkLabel(frame_start, text="دقيقة: ").grid(
             row=2, column=4, padx=10, pady=10)
-        self.start_min_entry = ttk.Spinbox(
-            frame_start, from_=0, to=59, wrap=True, format='%02.0f', width=5)
+        self.start_min_entry = FloatSpinbox(
+            frame_start, width=150, step_size=3)
         self.start_min_entry.grid(row=2, column=3, padx=10, pady=10)
 
-        ttk.Label(frame_start, text="ثانية: ").grid(
+        customtkinter.CTkLabel(frame_start, text="ثانية: ").grid(
             row=2, column=2, padx=10, pady=10)
-        self.start_sec_entry = ttk.Spinbox(
-            frame_start, from_=0, to=59, wrap=True, format='%02.0f', width=5)
+        self.start_sec_entry = FloatSpinbox(
+            frame_start,width=150, step_size=3)
         self.start_sec_entry.grid(row=2, column=1, padx=10, pady=10)
 
-        frame_end = tk.Frame(self, bd=2, relief='sunken')
+        frame_end = customtkinter.CTkFrame(self)
         frame_end.grid(row=4, column=1, columnspan=2, padx=10, pady=10)
-        ttk.Label(frame_end, text='وقت الانتهاء').grid(
+        customtkinter.CTkLabel(frame_end, text='وقت الانتهاء').grid(
             row=1, columnspan=6, padx=10, pady=10)
-        ttk.Label(frame_end, text="ساعة: ").grid(
+        customtkinter.CTkLabel(frame_end, text="ساعة: ").grid(
             row=2, column=6, padx=10, pady=10)
-        self.end_hour_entry = ttk.Spinbox(
-            frame_end, from_=0, to=23, wrap=True, format='%02.0f', width=5)
+        self.end_hour_entry = FloatSpinbox(
+            frame_end, width=150, step_size=3)
         self.end_hour_entry.grid(row=2, column=5, padx=10, pady=10)
 
-        ttk.Label(frame_end, text="دقيقة: ").grid(
+        customtkinter.CTkLabel(frame_end, text="دقيقة: ").grid(
             row=2, column=4, padx=10, pady=10)
-        self.end_min_entry = ttk.Spinbox(
-            frame_end, from_=0, to=59, wrap=True, format='%02.0f', width=5)
+        self.end_min_entry = FloatSpinbox(
+            frame_end, width=150, step_size=3)
         self.end_min_entry.grid(row=2, column=3, padx=10, pady=10)
 
-        ttk.Label(frame_end, text="ثانية: ").grid(
+        customtkinter.CTkLabel(frame_end, text="ثانية: ").grid(
             row=2, column=2, padx=10, pady=10)
-        self.end_sec_entry = ttk.Spinbox(
-            frame_end, from_=0, to=59, wrap=True, format='%02.0f', width=5)
+        self.end_sec_entry = FloatSpinbox(
+            frame_end, width=150, step_size=3)
         self.end_sec_entry.grid(row=2, column=1, padx=10, pady=10)
 
-        ttk.Label(self, text="الغرض: ").grid(row=6, column=2)
+        customtkinter.CTkLabel(self, text="الغرض: ").grid(row=6, column=2)
         self.type_var = tk.StringVar()
-        self.type_combo = ttk.Combobox(self, textvariable=self.type_var, values=[
+        self.type_combo = customtkinter.CTkComboBox(self, values=[
                                        'مرض', 'أمر شخصي', 'آخر'])
         self.type_combo.grid(row=5, column=1)
         self.type_combo.bind("<<ComboboxSelected>>", self.on_type_selected)
 
         # Hidden Label and Entry for "السبب اذا لم يكن أعلاه"
-        self.reason_label = ttk.Label(self, text=" السبب اذا لم يكن أعلاه: ")
-        self.reason_entry = ttk.Entry(self)
+        self.reason_label = customtkinter.CTkLabel(self, text=" السبب اذا لم يكن أعلاه: ")
+        self.reason_entry = customtkinter.CTkEntry(self)
 
         # Button to add request
-        ttk.Button(self, text="Add Request", command=self.add_permission_tool).grid(
+        customtkinter.CTkButton(self, text="Add Request", command=self.add_permission_tool).grid(
             row=7, columnspan=2, padx=10, pady=10)
 
     def on_type_selected(self, event):
@@ -789,25 +1046,25 @@ class AddPermissionWindow(Frame):
             self.destroy()
 
 
-class AddWithdrawMoney(Frame):
+class AddWithdrawMoney(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
 
-        ttk.Label(self, text='المبلغ المطلوب').pack()
-        self.amount = ttk.Spinbox(
-            self, from_=1, to=100000, format='%02.2f', wrap=True)
+        customtkinter.CTkLabel(self, text='المبلغ المطلوب').pack()
+        self.amount = FloatSpinbox(
+            self)
         self.amount.pack()
 
-        ttk.Label(self, text='السبب').pack()
-        self.reason = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text='السبب').pack()
+        self.reason = customtkinter.CTkEntry(self)
         self.reason.pack()
 
-        ttk.Button(self, text='طلب مصروف',
+        customtkinter.CTkButton(self, text='طلب مصروف',
                    command=self.withdraw_add).pack(pady=10)
 
         # Create a frame to hold the table
-        self.withdraw_table_frame = Frame(self)
+        self.withdraw_table_frame = customtkinter.CTkFrame(self)
         self.withdraw_table_frame.pack(pady=10)
 
         # Create the table
@@ -818,7 +1075,7 @@ class AddWithdrawMoney(Frame):
         self.withdraw_table.heading("status", text="الحالة")
         self.withdraw_table.pack()
 
-        ttk.Button(self, text='تحديث مصروف',
+        customtkinter.CTkButton(self, text='تحديث مصروف',
                    command=self.update_withdraw_data).pack(pady=10)
         self.populate_employee_table()
 
@@ -828,16 +1085,19 @@ class AddWithdrawMoney(Frame):
             self.withdraw_table.delete(row)
 
         # Get all employees from the database
-        employees = self.get_withdraw_details()
+    
+        # employees = self.get_withdraw_details()
+        employees = db.query(WithdrawMoney).all()
+        employees = [(employee.id, employee.employee.fullname, employee.amount, employee.status) for employee in employees]
 
         # Populate the table with employee names
         for id, employee_name, amount, status in employees:
             self.withdraw_table.insert(
                 "", tk.END, text=id, values=(employee_name, amount, status))
 
-    def get_withdraw_details(self):
-        employees = self.main_app.current_user.employee.withdraw_money
-        return [(employee.id, employee.employee.fullname, employee.amount, employee.status) for employee in employees]
+    # def get_withdraw_details(self):
+    #     employees = self.main_app.current_user.employee.withdraw_money
+    #     return [(employee.id, employee.employee.fullname, employee.amount, employee.status) for employee in employees]
 
     def update_withdraw_data(self):
         try:
@@ -848,19 +1108,19 @@ class AddWithdrawMoney(Frame):
                 withdraw = db.query(WithdrawMoney).filter_by(
                     id=int(selected_withdraw_id)).first()
                 if withdraw:
-                    top_level_withdraw = Toplevel()
+                    top_level_withdraw = customtkinter.CTkToplevel()
                     top_level_withdraw.title('تحديث المصروف')
 
-                    ttk.Label(top_level_withdraw, text='المبلغ المطلوب').pack()
-                    amount_widget = ttk.Spinbox(
-                        top_level_withdraw, from_=1, to=100000, format='%02.2f')
-                    amount_widget.delete(0, tk.END)
+                    customtkinter.CTkLabel(top_level_withdraw, text='المبلغ المطلوب').pack()
+                    amount_widget = FloatSpinbox(
+                        top_level_withdraw)
+                    amount_widget.set(0)
                     # Pre-select the current amount
                     amount_widget.insert(0, withdraw.amount)
                     amount_widget.pack()
 
-                    ttk.Label(top_level_withdraw, text='السبب').pack()
-                    reason_widget = ttk.Entry(top_level_withdraw)
+                    customtkinter.CTkLabel(top_level_withdraw, text='السبب').pack()
+                    reason_widget = customtkinter.CTkEntry(top_level_withdraw)
                     # Pre-select the current reason
                     reason_widget.insert(0, withdraw.reason)
                     reason_widget.pack()
@@ -880,7 +1140,7 @@ class AddWithdrawMoney(Frame):
                                 'Error', f"Failed to update: {str(e)}")
                             top_level_withdraw.destroy()
 
-                    ttk.Button(top_level_withdraw, text='تحديث',
+                    customtkinter.CTkButton(top_level_withdraw, text='تحديث',
                                command=save_updates).pack(pady=10)
                 else:
                     messagebox.showerror(
@@ -903,25 +1163,25 @@ class AddWithdrawMoney(Frame):
                 'Error', f"Failed to add withdraw record: {str(e)}")
 
 
-class AddMedicalInsuranceWindow(Frame):
+class AddMedicalInsuranceWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text='اسم الموظف').pack()
-        self.employee_name = ttk.Combobox(self, values=get_employee_names(db))
+        customtkinter.CTkLabel(self, text='اسم الموظف').pack()
+        self.employee_name = customtkinter.CTkComboBox(self, values=get_employee_names(db))
         self.employee_name.pack()
 
-        ttk.Label(self, text="تاريخ البداية: ").pack()
+        customtkinter.CTkLabel(self, text="تاريخ البداية: ").pack()
         self.start_date_entry = DateEntry(self, startdate=NOW)
         self.start_date_entry.pack()
 
-        ttk.Label(self, text="تاريخ النهاية: ").pack()
+        customtkinter.CTkLabel(self, text="تاريخ النهاية: ").pack()
         self.end_date_entry = DateEntry(self, startdate=YEAR_AFTER)
         self.end_date_entry.pack()
 
-        ttk.Button(self, text='حفظ', command=self.add_insurance).pack(pady=10)
+        customtkinter.CTkButton(self, text='حفظ', command=self.add_insurance).pack(pady=10)
         cols = ('اسم الموظف', 'بداية التأمين', 'نهاية التأمين')
         self.tree = ttk.Treeview(self, bootstyle="primary")
 
@@ -966,14 +1226,14 @@ class AddMedicalInsuranceWindow(Frame):
             messagebox.showerror('خطأ', e)
 
 
-class CompanyApplication(tk.Toplevel):
+class CompanyApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
 
         self.title("Management Systems")
         self.main_app = main_app
-        self.main_frame = Frame(self)
-        self.tab_control = ttk.Notebook(self.main_frame)
+        self.main_frame = customtkinter.CTkFrame(self)
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # List of tabs and their associated windows
@@ -987,58 +1247,59 @@ class CompanyApplication(tk.Toplevel):
         for tab_name, window_class in tabs:
             self.add_tab(tab_name, window_class)
 
-    def add_tab(self, tab_name, window_class):
-        tab_frame = ttk.Frame(self.tab_control)
-        self.tab_control.add(tab_frame, text=tab_name)
-        window_instance = window_class(tab_frame, self.main_app)
-        window_instance.pack(fill=tk.BOTH, expand=True)
+    def add_tab(self, tab_text, frame_class):
+        self.tab_control.add(tab_text)  # Add the tab by name
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_text))  # Assign the frame to the correct tab
+        tab_frame.pack(fill=tk.BOTH, expand=True)
+        tab_content = frame_class(tab_frame, self.main_app)  # Add the content
+        tab_content.pack(fill=tk.BOTH, expand=True)
         self.tab_control.pack(expand=True, fill='both')
 
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 
 
-class AddCompanyWindow(tk.Frame):
+class AddCompanyWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
-
+       
         self.main_app = main_app
-
-        ttk.Label(self, text="اسم الشركة").grid(
+       
+        customtkinter.CTkLabel(self, text="اسم الشركة").grid(
             row=0, column=1, padx=10, pady=10)
-        self.name_entry = ttk.Entry(self)
+        self.name_entry = customtkinter.CTkEntry(self)
         self.name_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        tk.Label(self, text="رقم الجوال").grid(
+        customtkinter.CTkButton(self, text="رقم الجوال").grid(
             row=1, column=1, padx=10, pady=10)
-        self.owner_entry = ttk.Entry(self)
+        self.owner_entry = customtkinter.CTkEntry(self)
         self.owner_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="الرقم الضريبي").grid(
+        customtkinter.CTkLabel(self, text="الرقم الضريبي").grid(
             row=2, column=1, padx=10, pady=10)
-        self.tax_entry = ttk.Entry(self)
+        self.tax_entry = customtkinter.CTkEntry(self)
         self.tax_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="رقم السجل التجاري").grid(
+        customtkinter.CTkLabel(self, text="رقم السجل التجاري").grid(
             row=3, column=1, padx=10, pady=10)
-        self.permit_entry = ttk.Entry(self)
+        self.permit_entry = customtkinter.CTkEntry(self)
         self.permit_entry.grid(row=3, column=0, padx=10, pady=10)
 
         # Logo
         self.logo_path = StringVar()
-        ttk.Button(self, text="شعار الشركة", command=self.browse_logo).grid(
+        customtkinter.CTkButton(self, text="شعار الشركة", command=self.browse_logo).grid(
             row=4, column=1, padx=10, pady=10)
-        ttk.Entry(self, textvariable=self.logo_path).grid(row=4, column=0)
+        customtkinter.CTkEntry(self, textvariable=self.logo_path).grid(row=4, column=0)
 
         # Document
         self.document_path = StringVar()
-        ttk.Button(self, text="وثائق الشركة", command=self.browse_document).grid(
+        customtkinter.CTkButton(self, text="وثائق الشركة", command=self.browse_document).grid(
             row=5, column=1, padx=10, pady=10)
-        ttk.Entry(self, textvariable=self.document_path).grid(
+        customtkinter.CTkEntry(self, textvariable=self.document_path).grid(
             row=5, column=0, padx=10, pady=10)
 
         # Save Button
-        ttk.Button(self, text="حفظ", command=self.save_company).grid(
+        customtkinter.CTkButton(self, text="حفظ", command=self.save_company).grid(
             row=6, columnspan=2, padx=10, pady=10)
 
         # Load existing company information if available
@@ -1087,7 +1348,7 @@ class AddCompanyWindow(tk.Frame):
             messagebox.showerror("Error", str(e))
 
 
-class AddAccountWindow(tk.Frame):
+class AddAccountWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.accounts = []
@@ -1095,31 +1356,31 @@ class AddAccountWindow(tk.Frame):
         self.main_app = main_app
 
     def create_account_fields(self):
-        ttk.Label(self, text="اسم البنك").grid(
+        customtkinter.CTkLabel(self, text="اسم البنك").grid(
             row=0, column=1, padx=10, pady=10)
-        self.bank_entry = ttk.Entry(self)
+        self.bank_entry = customtkinter.CTkEntry(self)
         self.bank_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="اسم المستفيد").grid(
+        customtkinter.CTkLabel(self, text="اسم المستفيد").grid(
             row=1, column=1, padx=10, pady=10)
-        self.fullname_entry = ttk.Entry(self)
+        self.fullname_entry = customtkinter.CTkEntry(self)
         self.fullname_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="رقم الحساب").grid(
+        customtkinter.CTkLabel(self, text="رقم الحساب").grid(
             row=2, column=1, padx=10, pady=10)
-        self.account_number_entry = ttk.Entry(self)
+        self.account_number_entry = customtkinter.CTkEntry(self)
         self.account_number_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="رقم الايبان").grid(
+        customtkinter.CTkLabel(self, text="رقم الايبان").grid(
             row=3, column=1, padx=10, pady=10)
-        self.iban_entry = ttk.Entry(self)
+        self.iban_entry = customtkinter.CTkEntry(self)
         self.iban_entry.grid(row=3, column=0, padx=10, pady=10)
-        ttk.Button(self, text='حذف حساب',
+        customtkinter.CTkButton(self, text='حذف حساب',
                    command=self.delete_account).grid(column=0, row=4)
 
-        ttk.Button(self, text="اضافة حساب", command=self.add_account).grid(
+        customtkinter.CTkButton(self, text="اضافة حساب", command=self.add_account).grid(
             row=4, column=1, padx=10, pady=10)
-        # ttk.Button(self, text="حفظ الحساب", command=self.save_accounts).grid(
+        # customtkinter.CTkButton(self, text="حفظ الحساب", command=self.save_accounts).grid(
         #     row=4, column=2, padx=10, pady=10)
         self.tree = ttk.Treeview(self, bootstyle=PRIMARY)
         cols = ('اسم البنك', 'اسم صاحب الحساب', 'رقم الحساب', 'رقم الايبان')
@@ -1159,11 +1420,6 @@ class AddAccountWindow(tk.Frame):
             self.tree.insert('', tk.END, text=id, values=(
                 acc.bank_name, acc.account_fullname, acc.account_number, acc.account_iban))
 
-    # def save_accounts(self):
-    #     for account in self.accounts:
-    #         add_account(load_data, **account)
-    #     messagebox.showinfo("Info", "Accounts saved successfully.")
-
     def delete_account(self):
         self.accounts = load_data.company_info.accounts
         idx = self.tree.selection()
@@ -1173,7 +1429,7 @@ class AddAccountWindow(tk.Frame):
             self.load_accounts()
 
 
-class AddFileWindow(Frame):
+class AddFileWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.create_file_fields()
@@ -1181,20 +1437,21 @@ class AddFileWindow(Frame):
         self.main_app = main_app
 
     def create_file_fields(self):
-        ttk.Label(self, text="اسم الملف").grid(
+        VALS = ['header','footer','logo','water_mark','fonts','car_blueprint']
+        customtkinter.CTkLabel(self, text="اسم الملف").grid(
             row=0, column=1, padx=10, pady=10)
-        self.file_name_entry = ttk.Entry(self)
+        self.file_name_entry = customtkinter.CTkComboBox(self,values=VALS)
         self.file_name_entry.grid(row=0, column=0, padx=10, pady=10)
         self.file_path = StringVar()
-        ttk.Button(self, text="فتح الملف", command=self.browse_file).grid(
+        customtkinter.CTkButton(self, text="فتح الملف", command=self.browse_file).grid(
             row=1, column=1, padx=10, pady=10)
-        ttk.Entry(self, textvariable=self.file_path).grid(
+        customtkinter.CTkEntry(self, textvariable=self.file_path).grid(
             row=1, column=0, padx=10, pady=10)
 
-        ttk.Button(self, text="اضافة ملف", command=self.add_file).grid(
+        customtkinter.CTkButton(self, text="اضافة ملف", command=self.add_file).grid(
             row=2, columnspan=2, padx=10, pady=10)
         
-        ttk.Button(self,text='حذف ملف',command=self.delete_file).grid(row=6,columnspan=2)
+        customtkinter.CTkButton(self,text='حذف ملف',command=self.delete_file).grid(row=6,columnspan=2)
 
         self.tree = ttk.Treeview(self, bootstyle=PRIMARY)
         cols = ('اسم المستند', 'رابط المستند')
@@ -1213,7 +1470,6 @@ class AddFileWindow(Frame):
             get_index(name,documents)
             self.load_documents()
             
-
     def browse_file(self):
         file_path = filedialog.askopenfilename()
         if file_path:
@@ -1225,24 +1481,27 @@ class AddFileWindow(Frame):
                 'name': self.file_name_entry.get(),
                 'path': self.file_path.get()
             }
-            add_document(load_data,**file_info)
-            self.clear_entries()
-            self.load_documents()
+            if file_info['name'] not in [i.name for i in load_data.company_info.documents]:
+                add_document(load_data,**file_info)
+                self.clear_entries()
+                self.load_documents()
+            else:
+                messagebox.showerror('error','هذا الملف موجود بالفعل')
         except Exception as e:
             messagebox.showerror('error',e)
 
     def clear_entries(self):
-        self.file_name_entry.delete(0, tk.END)
+        self.file_name_entry.set('')
         self.file_path.set("")
 
     def display_files(self):
         for idx, file in enumerate(self.files, start=3):
-            ttk.Label(self, text=f"File {idx - 2}").grid(row=idx, columnspan=2)
-            ttk.Label(self, text="File Name").grid(row=idx + 1, column=0)
-            ttk.Label(self, text=file['name']).grid(row=idx + 1, column=1)
+            customtkinter.CTkLabel(self, text=f"File {idx - 2}").grid(row=idx, columnspan=2)
+            customtkinter.CTkLabel(self, text="File Name").grid(row=idx + 1, column=0)
+            customtkinter.CTkLabel(self, text=file['name']).grid(row=idx + 1, column=1)
 
-            ttk.Label(self, text="File Path").grid(row=idx + 2, column=0)
-            ttk.Label(self, text=file['path']).grid(row=idx + 2, column=1)
+            customtkinter.CTkLabel(self, text="File Path").grid(row=idx + 2, column=0)
+            customtkinter.CTkLabel(self, text=file['path']).grid(row=idx + 2, column=1)
     
     def load_documents(self):
         for item in self.tree.get_children():
@@ -1252,57 +1511,57 @@ class AddFileWindow(Frame):
                 doc.name, doc.path))
 
 
-class AddConditionWindow(tk.Frame):
+class AddConditionWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.repair_conditions = load_data.conditions[0].condition_value
         self.setup_conditions = load_data.conditions[1].condition_value
 
-        repair_frame1 = Frame(self)
-        repair_frame2 = Frame(self)
+        repair_frame1 = customtkinter.CTkFrame(self)
+        repair_frame2 = customtkinter.CTkFrame(self)
         repair_frame1.grid(row=0, column=2, padx=20, pady=20)
-        ttk.Label(repair_frame1, text='شرط صيانة').grid(
+        customtkinter.CTkLabel(repair_frame1, text='شرط صيانة').grid(
             row=0, column=1, padx=10, pady=10)
-        self.new_condition_repair = ttk.Entry(repair_frame1)
+        self.new_condition_repair = customtkinter.CTkEntry(repair_frame1)
         self.new_condition_repair.grid(row=0, column=0, padx=10, pady=10)
         repair_frame2.grid(row=0, column=1, padx=20)
-        ttk.Label(repair_frame2, text='رقم الشرط').grid(
+        customtkinter.CTkLabel(repair_frame2, text='رقم الشرط').grid(
             row=0, column=1, padx=10, pady=10)
-        self.new_index_repair_entry = ttk.Entry(repair_frame2, width=3)
+        self.new_index_repair_entry = customtkinter.CTkEntry(repair_frame2, width=5)
         self.new_index_repair_entry.grid(row=0, column=0, padx=10, pady=10)
         self.tree_repair = ttk.Treeview(self, bootstyle=PRIMARY)
-        add_button_repair = ttk.Button(
+        add_button_repair = customtkinter.CTkButton(
             self, text='إضافة الشرط', command=self.add_new_condition_repair, state=tk.DISABLED)
         add_button_repair.grid(row=0, column=0, pady=10)
-        delete_button = ttk.Button(
+        delete_button = customtkinter.CTkButton(
             self, text='حذف شرط', command=self.delete_repair, state=tk.DISABLED)
         delete_button.grid(
             row=2, column=1, padx=10, pady=10)
-        update_button = ttk.Button(
+        update_button = customtkinter.CTkButton(
             self, text='تحدبث شرط', command=self.update_repair, state=tk.DISABLED)
         update_button.grid(
             row=2, column=0, padx=10, pady=10)
 
         if is_connected():
-            add_button_repair.config(state=tk.NORMAL)
-            delete_button.config(state=tk.NORMAL)
-            update_button.config(state=tk.NORMAL)
+            add_button_repair.configure(state=tk.NORMAL)
+            delete_button.configure(state=tk.NORMAL)
+            update_button.configure(state=tk.NORMAL)
 
-        setup_frame1 = Frame(self)
-        setup_frame2 = Frame(self)
+        setup_frame1 = customtkinter.CTkFrame(self)
+        setup_frame2 = customtkinter.CTkFrame(self)
         setup_frame2.grid(row=3, column=2, padx=20, pady=20)
-        ttk.Label(setup_frame2, text='شرط تركيب').grid(row=0, column=1)
-        self.new_setup_entry = ttk.Entry(setup_frame2)
+        customtkinter.CTkLabel(setup_frame2, text='شرط تركيب').grid(row=0, column=1)
+        self.new_setup_entry = customtkinter.CTkEntry(setup_frame2)
         self.new_setup_entry.grid(row=0, column=0)
         setup_frame1.grid(row=3, column=1, padx=20)
-        ttk.Label(setup_frame1, text='رقم الشرط').grid(row=0, column=1)
-        self.new_setup_index_entry = ttk.Entry(setup_frame1, width=3)
+        customtkinter.CTkLabel(setup_frame1, text='رقم الشرط').grid(row=0, column=1)
+        self.new_setup_index_entry = customtkinter.CTkEntry(setup_frame1, width=5)
         self.new_setup_index_entry.grid(row=0, column=0)
-        ttk.Button(self, text='حذف شرط', command=self.delete_setup).grid(
+        customtkinter.CTkButton(self, text='حذف شرط', command=self.delete_setup).grid(
             row=5, column=1, padx=10, pady=10)
-        ttk.Button(self, text='تحدبث شرط', command=self.update_setup).grid(
+        customtkinter.CTkButton(self, text='تحدبث شرط', command=self.update_setup).grid(
             row=5, column=0, padx=10, pady=10)
-        add_setup_button = ttk.Button(
+        add_setup_button = customtkinter.CTkButton(
             self, text='إضافة الشرط', command=self.add_new_condition_setup)
         add_setup_button.grid(row=3, column=0, pady=10, padx=10)
 
@@ -1359,8 +1618,8 @@ class AddConditionWindow(tk.Frame):
         idx = self.repair_tree.selection()
         if idx:
             id = int(self.repair_tree.item(idx[0], 'text'))
-            top_level = Toplevel(self)
-            entry = tk.Text(top_level)
+            top_level = customtkinter.CTkToplevel(self)
+            entry = customtkinter.CTkTextbox(top_level)
             entry.insert(tk.END, self.repair_conditions[id])
             entry.pack()
 
@@ -1372,7 +1631,7 @@ class AddConditionWindow(tk.Frame):
                 translate_conditions()
                 top_level.destroy()
 
-            save_button = ttk.Button(
+            save_button = customtkinter.CTkButton(
                 top_level, text='Save Updates', command=save_updates)
             save_button.pack()
 
@@ -1394,8 +1653,8 @@ class AddConditionWindow(tk.Frame):
         idx = self.setup_tree.selection()
         if idx:
             id = int(self.setup_tree.item(idx[0], 'text'))
-            top_level = Toplevel(self)
-            entry = tk.Text(top_level)
+            top_level = customtkinter.CTkToplevel(self)
+            entry = customtkinter.CTkTextbox(top_level)
             entry.insert(tk.END, self.setup_conditions[id])
             entry.pack()
 
@@ -1405,43 +1664,43 @@ class AddConditionWindow(tk.Frame):
                 self.populate_repair_tree()
                 top_level.destroy()
 
-            save_button = ttk.Button(
+            save_button = customtkinter.CTkButton(
                 top_level, text='حفظ التحديث', command=save_updates)
             save_button.pack()
 
 
-class AddCarWindow(tk.Frame):
+class AddCarWindow(customtkinter.CTkFrame):
     def __init__(self, master, update_car):
         super().__init__(master)
         self.update_car = update_car
 
         # Labels and entry fields for car information
-        ttk.Label(self, text="الصنع:").grid(row=0, column=1, padx=5, pady=5)
-        self.make_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text="الصنع:").grid(row=0, column=1, padx=5, pady=5)
+        self.make_entry = customtkinter.CTkEntry(self)
         self.make_entry.grid(row=0, column=0, padx=5, pady=5)
 
-        ttk.Label(self, text="اسم الشركة:").grid(
+        customtkinter.CTkLabel(self, text="اسم الشركة:").grid(
             row=1, column=1, padx=5, pady=5)
-        self.model_entry = ttk.Entry(self)
+        self.model_entry = customtkinter.CTkEntry(self)
         self.model_entry.grid(row=1, column=0, padx=5, pady=5)
 
-        ttk.Label(self, text="سنة الصنع:").grid(
+        customtkinter.CTkLabel(self, text="سنة الصنع:").grid(
             row=2, column=1, padx=5, pady=5)
-        self.year_entry = ttk.Entry(self)
+        self.year_entry = customtkinter.CTkEntry(self)
         self.year_entry.grid(row=2, column=0, padx=5, pady=5)
 
-        ttk.Label(self, text="ممشى المركبة:").grid(
+        customtkinter.CTkLabel(self, text="ممشى المركبة:").grid(
             row=3, column=1, padx=5, pady=5)
-        self.range_entry = ttk.Entry(self)
+        self.range_entry = customtkinter.CTkEntry(self)
         self.range_entry.grid(row=3, column=0, padx=5, pady=5)
 
-        tk.Label(self, text="سعر المركبة:").grid(
+        customtkinter.CTkButton(self, text="سعر المركبة:").grid(
             row=4, column=1, padx=5, pady=5)
-        self.cost_entry = ttk.Spinbox(
-            self, from_=1, to=10000000, format='%02.2f')
+        self.cost_entry = FloatSpinbox(
+            self)
         self.cost_entry.grid(row=4, column=0, padx=5, pady=5)
 
-        plate_frame = Frame(self)
+        plate_frame = customtkinter.CTkFrame(self)
         plate_frame.grid(row=5, column=0)
         arabic_letters = ['', 'أ', 'ب', 'ت', 'ث', 'ج', 'ح', 'خ', 'د', 'ذ', 'ر', 'ز', 'س',
                           'ش', 'ص', 'ض', 'ط', 'ظ', 'ع', 'غ', 'ف', 'ق', 'ك', 'ل', 'م', 'ن', 'ه', 'و', 'ي']
@@ -1449,32 +1708,32 @@ class AddCarWindow(tk.Frame):
                            'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z']
         numbers = ['', '1', '2', '3', '4', '5', '6', '7', '8', '9']
 
-        ttk.Label(self, text=' الاحرف والارقام\n بالعربية والانجليزية').grid(
+        customtkinter.CTkLabel(self, text=' الاحرف والارقام\n بالعربية والانجليزية').grid(
             row=5, column=1)
         self.objs = []
         for i in range(4):
-            arabic_combobox = ttk.Combobox(
+            arabic_combobox = customtkinter.CTkComboBox(
                 plate_frame, values=arabic_letters, width=4, justify='center')
             arabic_combobox.grid(row=0, column=i+1, padx=5)
             self.objs.append(arabic_combobox)
 
-            english_combobox = ttk.Combobox(
+            english_combobox = customtkinter.CTkComboBox(
                 plate_frame, values=english_letters, width=4, justify='center')
             english_combobox.grid(row=1, column=i+1, padx=5)
             self.objs.append(english_combobox)
 
-            number_combobox = ttk.Combobox(
+            number_combobox = customtkinter.CTkComboBox(
                 plate_frame, values=numbers, width=4, justify='center')
             number_combobox.grid(row=2, column=i+1, padx=5)
             self.objs.append(number_combobox)
 
-        ttk.Label(self, text="تاريخ شراء المركبة:").grid(
+        customtkinter.CTkLabel(self, text="تاريخ شراء المركبة:").grid(
             row=6, column=1, padx=5, pady=5)
         self.date_entry = DateEntry(self, startdate=NOW)
         self.date_entry.grid(row=6, column=0, padx=5, pady=5)
 
         # Button to add the car
-        add_button = ttk.Button(
+        add_button = customtkinter.CTkButton(
             self, text="إضافة سيارة جديدة", command=self.add_car)
         add_button.grid(row=7, columnspan=2, padx=5, pady=5)
 
@@ -1489,7 +1748,14 @@ class AddCarWindow(tk.Frame):
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor=tk.E)
             self.tree.grid(row=8, columnspan=2, padx=20, pady=20)
+        
+        self.tree_scroll = customtkinter.CTkScrollbar(self, command=self.tree.yview)
+        self.tree.configure(yscrollcommand=self.tree_scroll.set)
+
+        self.tree.grid(row=6, column=0, columnspan=2, sticky='nsew', padx=20, pady=20)
+        self.tree_scroll.grid(row=6, column=2, sticky='ns')
         self.populate_tree()
+
 
     def populate_tree(self):
         for item in self.tree.get_children():
@@ -1509,7 +1775,7 @@ class AddCarWindow(tk.Frame):
         self.model_entry.delete(0, tk.END)
         self.year_entry.delete(0, tk.END)
         self.range_entry.delete(0, tk.END)
-        self.cost_entry.delete(0, tk.END)
+        self.cost_entry.set(0)
         for obj in self.objs:
             obj.set('')
 
@@ -1550,30 +1816,30 @@ class AddCarWindow(tk.Frame):
             messagebox.showerror("Error", str(e))
 
 
-class AddCarYearlyDetectionWindow(tk.Frame):
+class AddCarYearlyDetectionWindow(customtkinter.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.create_widgets()
 
     def create_widgets(self):
         # Fields for Car Yearly Detection
-        ttk.Label(self, text="اسم المركبة:").grid(
+        customtkinter.CTkLabel(self, text="اسم المركبة:").grid(
             row=0, column=1, padx=10, pady=10)
-        self.car_id_entry = ttk.Combobox(self, values=get_cars(db))
+        self.car_id_entry = customtkinter.CTkComboBox(self, values=get_cars(db))
         self.car_id_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="بداية الفحص الدوري:").grid(
+        customtkinter.CTkLabel(self, text="بداية الفحص الدوري:").grid(
             row=1, column=1, padx=10, pady=10)
         self.startdate_entry = DateEntry(self, startdate=datetime.now())
         self.startdate_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="نهاية الفحص الدوري:").grid(
+        customtkinter.CTkLabel(self, text="نهاية الفحص الدوري:").grid(
             row=2, column=1, padx=10, pady=10)
         self.enddate_entry = DateEntry(self, startdate=datetime.now())
         self.enddate_entry.grid(row=2, column=0, padx=10, pady=10)
 
         # Button to add the detection
-        add_button = ttk.Button(self, text="توثيق الفحص",
+        add_button = customtkinter.CTkButton(self, text="توثيق الفحص",
                                 command=self.add_detection)
         add_button.grid(row=3, columnspan=2, pady=10, padx=10)
 
@@ -1630,35 +1896,35 @@ class AddCarYearlyDetectionWindow(tk.Frame):
         self.enddate_entry.entry.delete(0, tk.END)
 
 
-class AddInsuranceWindow(tk.Frame):
+class AddInsuranceWindow(customtkinter.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.create_widgets()
 
     def create_widgets(self):
         # Fields for Insurance
-        ttk.Label(self, text="اسم المركبة:").grid(
+        customtkinter.CTkLabel(self, text="اسم المركبة:").grid(
             row=0, column=1, padx=10, pady=10)
-        self.car_id_entry = ttk.Combobox(self, values=get_cars(db))
+        self.car_id_entry = customtkinter.CTkComboBox(self, values=get_cars(db))
         self.car_id_entry.grid(row=0, column=1, padx=10, pady=10)
 
-        ttk.Label(self, text="بداية التأمين:").grid(
+        customtkinter.CTkLabel(self, text="بداية التأمين:").grid(
             row=1, column=1, padx=10, pady=10)
         self.start_date_entry = DateEntry(self, startdate=NOW)
         self.start_date_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="نهاية التأمين:").grid(
+        customtkinter.CTkLabel(self, text="نهاية التأمين:").grid(
             row=2, column=1, padx=10, pady=10)
         self.end_date_entry = DateEntry(self, startdate=YEAR_AFTER)
         self.end_date_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="شركة التأمين:").grid(
+        customtkinter.CTkLabel(self, text="شركة التأمين:").grid(
             row=3, column=1, padx=10, pady=10)
-        self.company_name_entry = ttk.Entry(self)
+        self.company_name_entry = customtkinter.CTkEntry(self)
         self.company_name_entry.grid(row=3, column=0, padx=10, pady=10)
 
         # Button to add the insurance
-        add_button = ttk.Button(self, text="توثيق تأمين",
+        add_button = customtkinter.CTkButton(self, text="توثيق تأمين",
                                 command=self.add_insurance)
         add_button.grid(row=4, columnspan=2, pady=10, padx=10)
 
@@ -1709,36 +1975,36 @@ class AddInsuranceWindow(tk.Frame):
             messagebox.showerror("Error", str(e))
 
     def clear_entries(self):
-        self.car_id_entry.delete(0, tk.END)
+        self.car_id_entry.set('')
         self.start_date_entry.entry.delete(0, tk.END)
         self.end_date_entry.entry.delete(0, tk.END)
         self.company_name_entry.delete(0, tk.END)
 
 
-class AddCarLisinceWindow(tk.Frame):
+class AddCarLisinceWindow(customtkinter.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.create_widgets()
-
+        
     def create_widgets(self):
         # Fields for Car License
-        ttk.Label(self, text="اسم المركبة:").grid(
+        customtkinter.CTkLabel(self, text="اسم المركبة:").grid(
             row=0, column=1, padx=10, pady=10)
-        self.car_id_entry = ttk.Combobox(self, values=get_cars(db))
+        self.car_id_entry = customtkinter.CTkComboBox(self, values=get_cars(db))
         self.car_id_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="الرقم التسلسلي:").grid(
+        customtkinter.CTkLabel(self, text="الرقم التسلسلي:").grid(
             row=1, column=1, padx=10, pady=10)
-        self.serial_number_entry = ttk.Entry(self)
+        self.serial_number_entry = customtkinter.CTkEntry(self)
         self.serial_number_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="تاريخ انتهاء رخصة السير:").grid(
+        customtkinter.CTkLabel(self, text="تاريخ انتهاء رخصة السير:").grid(
             row=2, column=1, padx=10, pady=10)
         self.lisince_expiry_entry = DateEntry(self, startdate=datetime.now())
         self.lisince_expiry_entry.grid(row=2, column=0, padx=10, pady=10)
 
         # Button to add the license
-        add_button = ttk.Button(
+        add_button = customtkinter.CTkButton(
             self, text="توثيق الرخصة", command=self.add_license)
         add_button.grid(row=3, columnspan=2, pady=10)
 
@@ -1793,48 +2059,130 @@ class AddCarLisinceWindow(tk.Frame):
         self.lisince_expiry_entry.entry.delete(0, tk.END)
 
 
-class AddCarPartsDetectionWindow(tk.Frame):
+class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
     def __init__(self, master, update_driver):
         super().__init__(master)
         self.create_widgets()
         self.update_driver = update_driver
+        self.num_gen = self.gen_nums()  # Initialize the generator once
+
+
+
 
     def create_widgets(self):
         # Fields for Car Parts Detection
-        ttk.Label(self, text="اسم المركبة:").grid(
+        customtkinter.CTkLabel(self, text="اسم المركبة:").grid(
             row=0, column=1, padx=10, pady=10)
-        self.car_id_entry = ttk.Combobox(self, values=get_active_cars(db))
+        self.car_id_entry = customtkinter.CTkComboBox(self, values=get_active_cars(db))
         self.car_id_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="ممشى المركبة:").grid(
+        customtkinter.CTkLabel(self, text="ممشى المركبة:").grid(
             row=1, column=1, padx=10, pady=10)
-        self.driving_range_entry = ttk.Entry(self)
+        self.driving_range_entry = customtkinter.CTkEntry(self)
         self.driving_range_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="الحالة").grid(row=2, column=1, padx=10, pady=10)
-        self.status_entry = ttk.Combobox(self, values=['تسليم', 'استلام'])
+        customtkinter.CTkLabel(self, text="الحالة").grid(row=2, column=1, padx=10, pady=10)
+        self.status_entry = customtkinter.CTkComboBox(self, values=['تسليم', 'استلام'])
         self.status_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="ملاحظات:").grid(
-            row=3, column=1, padx=10, pady=10)
-        self.notes_entry = tk.Text(self)
-        self.notes_entry.grid(row=3, column=0, padx=10, pady=10)
+        customtkinter.CTkLabel(self, text="اسم الميكانيك").grid(row=3, column=1, padx=10, pady=10)
+        self.michanic_entry = customtkinter.CTkComboBox(self, values=self.get_michanics())
+        self.michanic_entry.grid(row=3, column=0, padx=10, pady=10)
+
+        self.car_image = Image.open(get_images('car_blueprint',load_data))
+        self.car_image_tk = ImageTk.PhotoImage(self.car_image)
+        self.canvas = tk.Canvas(self, width=self.car_image.width, height=self.car_image.height)
+        self.canvas.grid(row=4,columnspan=2)
+        self.canvas.create_image(0, 0, anchor=tk.NW, image=self.car_image_tk)
+
+        # List to keep track of notes
+        self.notes = ''
+        self.canvas.bind("<Button-1>", self.on_click)
+
+
 
         # Button to add the detection
-        add_button = ttk.Button(self, text="حفظ", command=self.add_detection)
-        add_button.grid(row=4, columnspan=2, pady=10)
+        add_button = customtkinter.CTkButton(self, text="حفظ", command=self.add_detection)
+        add_button.grid(row=5, column=0, pady=10)
+        customtkinter.CTkButton(self, text="Export as PNG", command=self.print_report).grid(row=5,column=1)
 
-    def add_detection(self):
-        # Retrieve values from entry fields
-        car = self.car_id_entry.get()
-        driving_range = self.driving_range_entry.get()
-        text = self.notes_entry.get('1.0', tk.END).strip()
-        car_data = db.query(Car).filter_by(id=car.split('-')[0]).first()
-        car_id = car_data.id
-        status = self.status_entry.get()
-        is_valid = True
+    def on_click(self, event):
+        x, y = event.x, event.y
+        print(f"Clicked at: ({x}, {y})")
+        self.show_note_form(x, y)
 
+    def show_note_form(self, x, y):
+        # Create a new Toplevel window for note input
+        form = customtkinter.CTkToplevel(self)
+        form.title(f"Note for ({x}, {y})")
+
+        # Note Label and Text area
+        customtkinter.CTkButton(form, text="Enter your note:").grid(row=0, column=0, padx=10, pady=10)
+        note_text = tk.Text(form, width=40, height=10)
+        note_text.grid(row=1, column=0, padx=10, pady=10)
+
+        # Submit button
+        customtkinter.CTkButton(form, text="Submit", command=lambda: self.save_note_and_close(form, x, y, note_text.get("1.0", "end-1c"))).grid(row=2, column=0, pady=10)
+
+    def gen_nums(self):
+        num = 1
+        while True:
+            yield num
+            num += 1
+
+    def save_note_and_close(self, form, x, y, note):
+        if note.strip():
+            # Save the note with its coordinates
+            num = next(self.num_gen)
+            self.notes += f"{num} {note}\n"
+
+            # self.label.config(text=self.notes,background='white',border=12)
+            # Display the note on the canvas (as a marker or text)
+            text_id = self.canvas.create_text(x, y, text=f"📍{num}", fill="red", font=("Arial", 16))
+            bbox = self.canvas.bbox(text_id)
+            rect_id = self.canvas.create_rectangle(bbox, fill="lightblue", outline="")
+            self.canvas.tag_raise(text_id,rect_id)
+        form.destroy()
+
+    def export_canvas(self):
+        # Save the canvas content to a postscript file in memory (without saving to disk)
+        postscript_file = 'out_put.ps'
+        if postscript_file:
+            self.canvas.postscript(file=postscript_file, colormode='color')
+            img = Image.open(postscript_file)
+            print("Canvas exported and image created")
+            return img
+
+
+
+    def print_report(self):
+        image = self.export_canvas()  # This gets the image directly
+        if image:
+            pdf = CreatePdf(f'{self.car_id_entry.get()}')
+            pdf.draw_car_blueprint(image)
+            pdf.header_footer()
+            pdf.save_pdf()
+
+
+
+
+    def get_michanics(self):
+        michanic = db.query(Employee).filter_by(career='ميكانيكي سيارات').all()
+        return [m.fullname for m in michanic ]
+
+    def add_detection(self): 
         try:
+        # Retrieve values from entry fields
+            car = self.car_id_entry.get()
+            driving_range = self.driving_range_entry.get()
+            text = self.notes
+            car_data = db.query(Car).filter_by(id=car.split('-')[0]).first()
+            car_id = car_data.id
+            michanic = self.michanic_entry.get()
+            status = self.status_entry.get()
+            is_valid = True
+
+       
             # Ensure proper data types
             car_id = int(car_id)
             driving_range = int(driving_range)
@@ -1845,7 +2193,8 @@ class AddCarPartsDetectionWindow(tk.Frame):
                 driving_range=driving_range,
                 notes=text,
                 status=status,
-                is_valid=is_valid
+                is_valid=is_valid,
+                michanic=michanic
             )
             messagebox.showinfo(
                 "Success", "Car parts detection added successfully!")
@@ -1855,53 +2204,53 @@ class AddCarPartsDetectionWindow(tk.Frame):
             messagebox.showerror("Error", str(e))
 
     def clear_entries(self):
-        self.car_id_entry.delete(0, tk.END)
-        self.status_entry.delete(0, tk.END)
+        self.car_id_entry.set('')
+        self.status_entry.set('')
         self.driving_range_entry.delete(0, tk.END)
 
 
-class AddCarDriverWindow(tk.Frame):
+class AddCarDriverWindow(customtkinter.CTkFrame):
     def __init__(self, master):
         super().__init__(master)
         self.create_widgets()
 
     def create_widgets(self):
         # Fields for Car Driver
-        ttk.Label(self, text="الموظف:").grid(row=0, column=1, padx=10, pady=10)
-        self.employee_id_entry = ttk.Combobox(
+        customtkinter.CTkLabel(self, text="الموظف:").grid(row=0, column=1, padx=10, pady=10)
+        self.employee_id_entry = customtkinter.CTkComboBox(
             self, values=get_unselected_employees())
         self.employee_id_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="رقم رخصة القيادة").grid(
+        customtkinter.CTkLabel(self, text="رقم رخصة القيادة").grid(
             row=2, column=1, padx=10, pady=10)
-        self.driver_license_number_entry = tk.Entry(self)
+        self.driver_license_number_entry = customtkinter.CTkEntry(self)
         self.driver_license_number_entry.grid(
             row=2, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="تاريخ انتهاء الرخصة:").grid(
+        customtkinter.CTkLabel(self, text="تاريخ انتهاء الرخصة:").grid(
             row=3, column=1, padx=10, pady=10)
         self.expiry_date_entry = DateEntry(self, startdate=datetime.now())
         self.expiry_date_entry.grid(row=3, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="تاريخ استلام المركبة:").grid(
+        customtkinter.CTkLabel(self, text="تاريخ استلام المركبة:").grid(
             row=4, column=1, padx=10, pady=10)
         self.date_entry = DateEntry(self, startdate=datetime.now())
         self.date_entry.grid(row=4, column=0, padx=10, pady=10)
 
-        ttk.Label(self, text="الفحص").grid(row=5, column=1, padx=10, pady=10)
-        self.detection_id_entry = ttk.Combobox(
+        customtkinter.CTkLabel(self, text="الفحص").grid(row=5, column=1, padx=10, pady=10)
+        self.detection_id_entry = customtkinter.CTkComboBox(
             self, values=get_detection_id(db))
         self.detection_id_entry.grid(row=5, column=0, padx=10, pady=10)
 
         # Button to add the driver
-        add_button = ttk.Button(
+        add_button = customtkinter.CTkButton(
             self, text="تعيين سائق مركبة", command=self.add_driver)
         add_button.grid(row=6, columnspan=2, pady=10)
 
-        delete_button = ttk.Button(
+        delete_button = customtkinter.CTkButton(
             self, text='إزالة سائق مركبة', command=self.delete_driver)
         delete_button.grid(row=8, column=0, padx=10, pady=10)
-        update_button = ttk.Button(
+        update_button = customtkinter.CTkButton(
             self, text='تحديث سائق مركبة', command=self.update_car_driver)
         update_button.grid(row=8, column=1, padx=10, pady=10)
 
@@ -1982,8 +2331,8 @@ class AddCarDriverWindow(tk.Frame):
             messagebox.showerror("Error", str(e))
 
     def clear_entries(self):
-        self.employee_id_entry.delete(0, tk.END)
-        self.detection_id_entry.delete(0, tk.END)
+        self.employee_id_entry.set('')
+        self.detection_id_entry.set('')
         self.date_entry.entry.delete(0, tk.END)
         self.driver_license_number_entry.delete(0, tk.END)
         self.expiry_date_entry.entry.delete(0, tk.END)
@@ -1996,9 +2345,9 @@ class AddCarDriverWindow(tk.Frame):
                 driver = db.query(CarDriver).filter_by(
                     id=int(selected_driver_id)).first()
                 if driver:
-                    top_level = Toplevel()
-                    ttk.Label(top_level, text='يرجى اختار تقرير الفحص').pack()
-                    detection_entry = ttk.Combobox(
+                    top_level = customtkinter.CTkToplevel()
+                    customtkinter.CTkLabel(top_level, text='يرجى اختار تقرير الفحص').pack()
+                    detection_entry = customtkinter.CTkComboBox(
                         top_level, values=get_detection_id(db))
                     detection_entry.pack(padx=20, pady=20)
 
@@ -2018,7 +2367,7 @@ class AddCarDriverWindow(tk.Frame):
                         self.populate_tree()
                         top_level.destroy()
 
-                    ttk.Button(top_level, text='حفظ تقرير الفحص',
+                    customtkinter.CTkButton(top_level, text='حفظ تقرير الفحص',
                                command=save_detection_report).pack(padx=10, pady=10)
                 else:
                     messagebox.showerror("Error", "Driver not found")
@@ -2036,32 +2385,32 @@ class AddCarDriverWindow(tk.Frame):
                 selected_driver_id = self.tree.item(selected_item[0], 'text')
                 driver = db.query(CarDriver).filter_by(
                     id=int(selected_driver_id)).first()
-
+                            
                 if driver:
-                    top_level_widget = Toplevel()
+                    top_level_widget = customtkinter.CTkToplevel()
                     top_level_widget.title("تحديث معلومات سائق مركبة")
 
-                    ttk.Label(top_level_widget, text="رقم رخصة القيادة").grid(
+                    customtkinter.CTkLabel(top_level_widget, text="رقم رخصة القيادة").grid(
                         row=2, column=1)
-                    self.driver_license_number_entry = ttk.Entry(
+                    self.driver_license_number_entry = customtkinter.CTkEntry(
                         top_level_widget)
                     self.driver_license_number_entry.grid(row=2, column=0)
 
-                    ttk.Label(top_level_widget, text="تاريخ انتهاء الرخصة:").grid(
+                    customtkinter.CTkLabel(top_level_widget, text="تاريخ انتهاء الرخصة:").grid(
                         row=3, column=1)
                     self.expiry_date_entry = DateEntry(
                         top_level_widget, startdate=driver.lisince_expiry_date)
                     self.expiry_date_entry.grid(row=3, column=0)
 
-                    ttk.Label(top_level_widget, text="تاريخ استلام المركبة:").grid(
+                    customtkinter.CTkLabel(top_level_widget, text="تاريخ استلام المركبة:").grid(
                         row=4, column=1)
                     self.date_entry = DateEntry(
                         top_level_widget, startdate=driver.date)
                     self.date_entry.grid(row=4, column=0)
 
-                    ttk.Label(self, text="الفحص").grid(
+                    customtkinter.CTkLabel(self, text="الفحص").grid(
                         row=5, column=1, padx=10, pady=10)
-                    self.detection_id_entry = ttk.Combobox(
+                    self.detection_id_entry = customtkinter.CTkComboBox(
                         top_level_widget, values=get_detection_id(db))
                     self.detection_id_entry.grid(
                         row=5, column=0, padx=10, pady=10)
@@ -2088,7 +2437,7 @@ class AddCarDriverWindow(tk.Frame):
                             messagebox.showerror(
                                 "Error", f"Failed to update car driver: {str(e)}")
 
-                    ttk.Button(top_level_widget, text='تحديث سائق',
+                    customtkinter.CTkButton(top_level_widget, text='تحديث سائق',
                                command=save_updates).grid(row=6, columnspan=2)
                 else:
                     messagebox.showerror(
@@ -2100,17 +2449,14 @@ class AddCarDriverWindow(tk.Frame):
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
 
-class CarApplication(Toplevel):
+class CarApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
         self.title("ادارة المركبات")
 
         self.main_app = main_app
-
-        self.main_frame = Frame(self)
-        self.tab_control = ttk.Notebook(self.main_frame, bootstyle=PRIMARY)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
-        self.tab_control.pack(expand=True, fill='both')
+        self.main_frame = customtkinter.CTkFrame(self)
+        
         # Define tab configuration: (tab_text, frame_class)
         tab_configs = [
             ('مركبة جديدة', AddCarWindow),
@@ -2118,33 +2464,43 @@ class CarApplication(Toplevel):
             ('التأمين', AddInsuranceWindow),
             ('رخصة المركبة', AddCarLisinceWindow),
             ('فحص قطع المركبة', AddCarPartsDetectionWindow),
-            ('سائق المركبة', AddCarDriverWindow)]
+            ('سائق المركبة', AddCarDriverWindow)
+        ]
 
+        # Initialize tab control
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
+        
         # Add tabs dynamically
         self.windows = {}
         for tab_text, frame_class in tab_configs:
             self.add_tab(tab_text, frame_class)
+        
+        # Pack tab control after adding tabs
+        self.tab_control.pack(fill=tk.BOTH, expand=True)
+        
+        # Pack main frame after everything is initialized
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
     def add_tab(self, tab_text, frame_class):
-        tab_frame = Frame(self.tab_control)
-        self.tab_control.add(tab_frame, text=tab_text)
+        self.tab_control.add(tab_text)
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_text))
+        tab_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Initialize the correct window with the appropriate callback
         if tab_text == 'مركبة جديدة':
-            yearly_inspection = frame_class(
-                tab_frame, self.update_cars)
+            window_instance = frame_class(tab_frame, self.update_cars)
         elif tab_text == 'فحص قطع المركبة':
-            yearly_inspection = frame_class(
-                tab_frame, self.update_detection)
-
+            window_instance = frame_class(tab_frame, self.update_detection)
         else:
-            yearly_inspection = frame_class(tab_frame)
-        yearly_inspection.pack(fill=tk.BOTH, expand=True)
-        self.windows[tab_text] = yearly_inspection
-
+            window_instance = frame_class(tab_frame)
+        
+        # Pack the frame
+        window_instance.pack(fill=tk.BOTH, expand=True)
+        self.windows[tab_text] = window_instance
     def update_detection(self):
         car_driver_window = self.windows.get('سائق المركبة')
         if car_driver_window:
-            car_driver_window.detection_id_entry['values'] = get_detection_id(
-                db)
+            car_driver_window.detection_id_entry.configure(values=get_detection_id(db))
 
     def update_cars(self):
         # Update customers in AddOrderWindow
@@ -2152,29 +2508,27 @@ class CarApplication(Toplevel):
         insurance_window = self.windows.get('التأمين')
         car_lisince = self.windows.get('رخصة المركبة')
         if yearly_inspection_window:
-            yearly_inspection_window.car_id_entry['values'] = get_cars(db)
+            yearly_inspection_window.car_id_entry.configure(values= get_cars(db))
         if insurance_window:
-            insurance_window.car_id_entry['values'] = get_cars(db)
+            insurance_window.car_id_entry.configure(values= get_cars(db))
         if car_lisince:
-            car_lisince.car_id_entry['values'] = get_cars(db)
+            car_lisince.car_id_entry.configure(values= get_cars(db))
 
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 
 
-class AddApprovalWindow(Frame):
-    def __init__(self, master, main_app):
-        super().__init__(master)
-
+class AddApprovalWindow(customtkinter.CTkFrame):
+    def __init__(self, parent, main_app):
+        super().__init__(parent)
         self.main_app = main_app
         self.new_applications = []
         self.frames = []
-
-        vacations = db.query(Vacation).all()
-        permissions = db.query(Permission).all()
-        tool_requests = db.query(ToolRequest).all()
-        money_requests = db.query(WithdrawMoney).all()
-        tasks = db.query(Task).all()
+        vacations = self.main_app.db_session.query(Vacation).all()
+        permissions = self.main_app.db_session.query(Permission).all()
+        tool_requests = self.main_app.db_session.query(ToolRequest).all()
+        money_requests = self.main_app.db_session.query(WithdrawMoney).all()
+        tasks = self.main_app.db_session.query(Task).all()
 
         # List of all application tables
         tables = [vacations, permissions, tool_requests, money_requests, tasks]
@@ -2184,101 +2538,148 @@ class AddApprovalWindow(Frame):
             self.new_applications.extend(
                 [application for application in table if application.status is None])
 
-        # Create a frame for each new application and add it to the GUI
-        for application in self.new_applications:
+        # Create a canvas and a scrollbar
+        self.canvas = tk.Canvas(self)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.scrollbar = customtkinter.CTkScrollbar(self,command=self.canvas.yview)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        # Create a frame within the canvas to hold the application frames
+        self.scrollable_frame = customtkinter.CTkFrame(self.canvas)
+        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
+
+        # Create a frame for each new application and add it to the scrollable frame
+        for application in self.new_applications[::-1]:
             self.create_application_frame(application)
-
-        self.pack(expand=True, fill='both')
-
     def create_application_frame(self, application):
-        frame = Frame(self)
-        frame.pack(pady=5)
+        frame = customtkinter.CTkFrame(self.scrollable_frame)
+        frame.pack(pady=5, fill=tk.X)
         self.frames.append(frame)
 
         # Display the employee's full name
-        ttk.Label(frame, text=f"{application}").pack(pady=10)
+        customtkinter.CTkLabel(frame, text=f"{application}").pack(pady=10)
 
         # Approve and Decline buttons
-        approve_button = ttk.Button(frame, text='اعتماد', command=lambda: self.save_status(
-            application, 'معتمد'), bootstyle=SUCCESS)
+        approve_button = customtkinter.CTkButton(frame, text='اعتماد', command=lambda: self.save_status(application, 'معتمد'))
         approve_button.pack(side=tk.LEFT, padx=5, pady=10)
-        decline_button = ttk.Button(frame, text='رفض', command=lambda: self.save_status(
-            application, 'مرفوض'), bootstyle=DANGER)
+        decline_button = customtkinter.CTkButton(frame, text='رفض', command=lambda: self.save_status(application, 'مرفوض'))
         decline_button.pack(side=tk.LEFT, padx=5, pady=10)
 
     def save_status(self, application, status):
         application.status = status
-        db.commit()  # Save changes to the database
-        messagebox.showinfo("Success", "Status saved successfully.")
-        self.destroy()
+        self.main_app.db_session.commit()
+        for frame in self.frames:
+            if frame.winfo_children()[0].cget("text") == str(application):
+                frame.destroy()
+                self.frames.remove(frame)
+                break
+
+    def _on_frame_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def get_frame_count(self):
         return len(self.frames)
-
-
-class AddTaskCompletion(Frame):
+    
+class AddTaskCompletion(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
         self.main_app = main_app
         self.current_user = self.main_app.current_user
-        self.new_applications = []
         self.frames = []
-        self.tasks = db.query(Task).all()
-        for task in self.tasks:
-            self.create_application_frame(task)
-        # for application self.tasks:
-        #     self.create_application_frame(application)
+        self.canvas = tk.Canvas(self)
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-    def create_application_frame(self, application):
-        frame = Frame(self)
-        frame.pack(pady=5)
+        self.scrollbar = customtkinter.CTkScrollbar(self,command=self.canvas.yview)
+        self.scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        # Create a frame within the canvas to hold the application frames
+        self.scrollable_frame = customtkinter.CTkFrame(self.canvas)
+        self.scrollable_frame.bind("<Configure>", self._on_frame_configure)
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor=tk.NW)
+
+        # Load tasks and create frames
+        self.load_tasks()
+
+    def load_tasks(self):
+        with self.main_app.new_session() as db:
+            self.tasks = db.query(Task).options(joinedload(Task.employee)).all()
+        self.create_application_frames()
+
+    def create_application_frames(self):
+        for task in self.tasks[::-1]:
+            self.create_application_frame(task)
+
+
+    def create_application_frame(self, task):
+        frame = customtkinter.CTkFrame(self.scrollable_frame)
+        frame.pack(pady=5, fill=tk.X)
         self.frames.append(frame)
 
-        # Display the employee's full name
-        ttk.Label(
-            frame, text=f"{application.employee.fullname}\n{application}\n{'الحالة منجزة' if application.completed == True else 'لم تنجز بعد'}").pack(pady=10)
+        # Access employee details safely
+        employee_fullname = task.employee.fullname if task.employee else "Unknown"
+        customtkinter.CTkLabel(
+            frame, text=f"{employee_fullname}\n{task}\n{'الحالة منجزة' if task.completed else 'لم تنجز بعد'}"
+        ).pack(pady=10)
 
-        # Approve and Decline buttons
-        self.approve_button = ttk.Button(
-            frame, text='اعتماد الانجاز', command=lambda: self.save_status(application), bootstyle=SUCCESS)
-        self.approve_button.pack(
-            side=tk.LEFT, padx=5, pady=10) if application.completed == False else None
+        if not task.completed:
+            approve_button = customtkinter.CTkButton(
+                frame, text='اعتماد الانجاز', command=lambda: self.save_status(task))
+            approve_button.pack(side=tk.LEFT, padx=5, pady=10)
 
-    def save_status(self, application):
-        application.completed = True
-        db.commit()  # Save changes to the database
+    def save_status(self, task):
+        with self.main_app.new_session() as db:
+            task = db.get(Task, task.id)
+            task.completed = True
+            db.commit()
         messagebox.showinfo("Success", "Status saved successfully.")
-        self.destroy()
-        self.approve_button.destroy()
+        self.refresh_tasks()
+
+    def refresh_tasks(self):
+        for frame in self.frames:
+            frame.destroy()
+        self.frames.clear()
+        self.load_tasks()
+
+    def _on_frame_configure(self, event):
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
 
-class AddUsersWindow(Frame):
+
+class AddUsersWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        self.employee_id_label = ttk.Label(self, text="الموظف")
+        self.employee_id_label = customtkinter.CTkLabel(self, text="الموظف")
         self.employee_id_label.grid(row=0, column=1, padx=10, pady=10)
-        self.employee_id_entry = ttk.Combobox(self, values=get_none_users(db))
+        self.employee_id_entry = customtkinter.CTkComboBox(self, values=get_none_users(db))
         self.employee_id_entry.grid(row=0, column=0, padx=10, pady=10)
 
-        self.username_label = ttk.Label(self, text="اسم المستخدم")
+        self.username_label = customtkinter.CTkLabel(self, text="اسم المستخدم")
         self.username_label.grid(row=1, column=1, padx=10, pady=10)
-        self.username_entry = ttk.Entry(self)
+        self.username_entry = customtkinter.CTkEntry(self)
         self.username_entry.grid(row=1, column=0, padx=10, pady=10)
 
-        self.email_label = ttk.Label(self, text="الايميل")
+        self.email_label = customtkinter.CTkLabel(self, text="الايميل")
         self.email_label.grid(row=2, column=1, padx=10, pady=10)
-        self.email_entry = ttk.Entry(self)
+        self.email_entry = customtkinter.CTkEntry(self)
         self.email_entry.grid(row=2, column=0, padx=10, pady=10)
 
-        self.password_label = ttk.Label(self, text="كلمة المرور")
+        self.password_label = customtkinter.CTkLabel(self, text="كلمة المرور")
         self.password_label.grid(row=3, column=1, padx=10, pady=10)
-        self.password_entry = ttk.Entry(self, show="*")
+        self.password_entry = customtkinter.CTkEntry(self, show="*")
         self.password_entry.grid(row=3, column=0, padx=10, pady=10)
 
-        self.submit_button = ttk.Button(
+        self.submit_button = customtkinter.CTkButton(
             self, text="مستخدم جديد", command=self.create_or_update_user)
         self.submit_button.grid(row=4, columnspan=2, padx=5, pady=5)
 
@@ -2328,13 +2729,13 @@ class AddUsersWindow(Frame):
             messagebox.showerror("Error", str(e))
 
 
-class ApprovalApplication(tk.Toplevel):
+class ApprovalApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
-        self.title(f"ادارة الاعتمادات")
+        self.title("ادارة الاعتمادات")
         self.main_app = main_app
-        self.main_frame = ttk.Frame(self)
-        self.tab_control = ttk.Notebook(self.main_frame, bootstyle=PRIMARY)
+        self.main_frame = customtkinter.CTkFrame(self)
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Define tab configuration: (tab_text, frame_class)
@@ -2342,7 +2743,7 @@ class ApprovalApplication(tk.Toplevel):
             ('المستخدمين', AddUsersWindow),
             ('الاعتمادات', AddApprovalWindow),
             ('اعتماد الانجازات', AddTaskCompletion),
-            ('إدارة المهام', AddTaskWindow),
+            ('إدارة المهام', AddTaskWindow)
         ]
 
         # Add tabs dynamically
@@ -2350,126 +2751,129 @@ class ApprovalApplication(tk.Toplevel):
             self.add_tab(tab_text, frame_class)
 
     def add_tab(self, tab_text, frame_class):
-        tab_frame = Frame(self.tab_control)
-        self.tab_control.add(tab_frame, text=tab_text)
+        self.tab_control.add(tab_text)
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_text))
+        tab_frame.pack(fill=tk.BOTH, expand=True)
+        
         tab_content = frame_class(tab_frame, self.main_app)
         tab_content.pack(fill=tk.BOTH, expand=True)
         self.tab_control.pack(expand=True, fill='both')
 
-        # If the tab is AddApprovalWindow, update the title with the number of frames
-        if isinstance(tab_content, AddApprovalWindow):
-            frame_count = tab_content.get_frame_count()
-            tab_text = f"{tab_text} ({frame_count})"
-            self.tab_control.tab(
-                len(self.tab_control.tabs()) - 1, text=tab_text)
+        # Try to dynamically update tab text based on the content
+        try:
+            if hasattr(tab_content, 'get_frame_count'):
+                frame_count = tab_content.get_frame_count()
+                new_tab_text = f"{tab_text} ({frame_count})"
+                
+                # Remove the old tab and add a new one with updated text
+                self.tab_control.delete(tab_text)
+                self.tab_control.add(new_tab_text)
+                
+                # Reassign content to the new tab
+                tab_frame = customtkinter.CTkFrame(self.tab_control.tab(new_tab_text))
+                tab_frame.pack(fill=tk.BOTH, expand=True)
+                tab_content = frame_class(tab_frame, self.main_app)
+                tab_content.pack(fill=tk.BOTH, expand=True)
+                
+        except Exception as e:
+            print(f"Error updating tab text for {tab_text}: {e}")
+
+
 
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 
 
-class AddProductWindow(Frame):
+class AddProductWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text='اسم المنتج').grid(
-            row=0, column=1, pady=10, padx=10)
-        self.product_entry = ttk.Entry(self)
+        customtkinter.CTkLabel(self, text='اسم المنتج').grid(row=0, column=1, pady=10, padx=10)
+        self.product_entry = customtkinter.CTkEntry(self)
         self.product_entry.grid(row=0, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='الكمية').grid(row=1, column=1, pady=10, padx=10)
-        self.quantity_entry = ttk.Spinbox(self, from_=0, to=10000)
+        customtkinter.CTkLabel(self, text='الكمية').grid(row=1, column=1, pady=10, padx=10)
+        self.quantity_entry = FloatSpinbox(self)
         self.quantity_entry.grid(row=1, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='السعر').grid(row=2, column=1, pady=10, padx=10)
-        self.price_entry = ttk.Spinbox(
-            self, from_=0, to=10000, format='%02.2f')
+        customtkinter.CTkLabel(self, text='السعر').grid(row=2, column=1, pady=10, padx=10)
+        self.price_entry = FloatSpinbox(self)
         self.price_entry.grid(row=2, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='الوصف').grid(row=3, column=1, pady=10, padx=10)
+        customtkinter.CTkLabel(self, text='الوصف').grid(row=3, column=1, pady=10, padx=10)
         self.desc_entry = tk.Text(self, height=5, width=40)
         self.desc_entry.grid(row=3, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='باركود').grid(row=4, column=1, pady=10, padx=10)
-        self.barcode_entry = tk.Entry(self)
+        customtkinter.CTkLabel(self, text='باركود').grid(row=4, column=1, pady=10, padx=10)
+        self.barcode_entry = customtkinter.CTkEntry(self)
         self.barcode_entry.grid(row=4, column=0, pady=10, padx=10)
 
-        ttk.Button(self, text='إضافة منتج',
-                   command=self.add_product_command).grid(row=5, columnspan=2, pady=10, padx=10)
+        customtkinter.CTkButton(self, text='إضافة منتج', command=self.add_product_command).grid(row=5, columnspan=2, pady=10, padx=10)
+        
         cols = ('اسم المنتج', 'الكمية', 'السعر', 'الوصف', 'باركود')
-        self.tree = ttk.Treeview(self, bootstyle='primary')
-
-        self.tree['columns'] = cols
-        self.tree.heading('#0', text='ID')
-        self.tree.column('#0', width=50)
+        self.tree = ttk.Treeview(self, columns=cols, show='headings')
         for col in cols:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor=tk.E)
-            self.tree.grid(row=6, columnspan=2, padx=20, pady=20)
 
-    #     # Add Update and Print buttons
-        self.update_button = ttk.Button(
-            self, text='تحديث', command=self.update_product_data)
+        # Adding the scrollbar
+        self.tree_scroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=self.tree_scroll.set)
+
+        self.tree.grid(row=6, column=0, columnspan=2, sticky='nsew', padx=20, pady=20)
+        self.tree_scroll.grid(row=6, column=2, sticky='ns')
+
+        self.update_button = customtkinter.CTkButton(self, text='تحديث', command=self.update_product_data)
         self.update_button.grid(row=7, columnspan=2, padx=10, pady=10)
+
         self.populate_treeview()
 
     def populate_treeview(self):
-        # Clear the Treeview
+
         for item in self.tree.get_children():
             self.tree.delete(item)
-        # Fetch contract data from the database and populate the Treeview
+            
         products = db.query(Inventory).all()
         for product in products:
-            self.tree.insert('', 'end', text=product.id, values=(
-                product.product,
-                product.quantity,
-                product.price,
-                product.desc,
-                product.barcode,
-            ))
+            self.tree.insert('', 'end', values=(product.product, product.quantity, product.price, product.desc, product.barcode))
 
     def update_product_data(self):
         try:
-            # Get the selected contract from the Treeview and allow the user to update its details
+            
             selected_item = self.tree.selection()
             if selected_item:
-                # Get the contract ID from the selected item
+             
                 selected_produce_id = self.tree.item(selected_item[0], 'text')
-                product = db.query(Inventory).filter_by(
-                    id=int(selected_produce_id)).first()
+                product = db.query(Inventory).filter_by(id=int(selected_produce_id)).first()
 
                 if product:
-                    top_level_widget = Toplevel()
+                    top_level_widget = customtkinter.CTkToplevel()
                     top_level_widget.title("تحديث المنتج")
 
-                    ttk.Label(top_level_widget, text='اسم المنتج').pack(
-                        pady=10, padx=10)
-                    self.product_entry = tk.Entry(top_level_widget)
+                    customtkinter.CTkLabel(top_level_widget, text='اسم المنتج').pack(pady=10, padx=10)
+                    self.product_entry = customtkinter.CTkEntry(top_level_widget)
                     self.product_entry.insert(0, product.product)
                     self.product_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='الكمية').pack(
-                        pady=10, padx=10)
-                    self.product_quantity_entry = tk.Entry(top_level_widget)
+                    customtkinter.CTkLabel(top_level_widget, text='الكمية').pack(pady=10, padx=10)
+                    self.product_quantity_entry = customtkinter.CTkEntry(top_level_widget)
                     self.product_quantity_entry.insert(0, product.quantity)
                     self.product_quantity_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='السعر').pack(
-                        pady=10, padx=10)
-                    self.product_price_entry = tk.Entry(top_level_widget)
+                    customtkinter.CTkLabel(top_level_widget, text='السعر').pack(pady=10, padx=10)
+                    self.product_price_entry = customtkinter.CTkEntry(top_level_widget)
                     self.product_price_entry.insert(0, product.price)
                     self.product_price_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='الوصف').pack(
-                        pady=10, padx=10)
-                    self.product_desc_entry = tk.Entry(top_level_widget)
+                    customtkinter.CTkLabel(top_level_widget, text='الوصف').pack(pady=10, padx=10)
+                    self.product_desc_entry = customtkinter.CTkEntry(top_level_widget)
                     self.product_desc_entry.insert(0, product.desc)
                     self.product_desc_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='باركود').pack(
-                        pady=10, padx=10)
-                    self.product_barcode_entry = tk.Entry(top_level_widget)
+                    customtkinter.CTkLabel(top_level_widget, text='باركود').pack(pady=10, padx=10)
+                    self.product_barcode_entry = customtkinter.CTkEntry(top_level_widget)
                     self.product_barcode_entry.insert(0, product.barcode)
                     self.product_barcode_entry.pack(pady=10, padx=10)
 
@@ -2490,22 +2894,18 @@ class AddProductWindow(Frame):
                             )
                             update_product(db, id=selected_produce_id, product=product_valdiation.product, quantity=product_valdiation.quantity,
                                            price=product_valdiation.price, desc=product_valdiation.desc, barcode=product_valdiation.barcode)
-                            messagebox.showinfo(
-                                "نجاح العملية", "تم تحديث المنتج بنجاح")
-                            self.populate_treeview()  # Refresh the Treeview to show updated data
+                            messagebox.showinfo("نجاح العملية", "تم تحديث المنتج بنجاح")
+                            self.populate_treeview()
                             top_level_widget.destroy()
                         except ValidationError as e:
                             self.show_validation_errors(e)
                         except Exception as e:
                             db.rollback()
-                            messagebox.showerror(
-                                "Error", f"Failed to update product: {str(e)}")
+                            messagebox.showerror("Error", f"Failed to update product: {str(e)}")
 
-                    ttk.Button(top_level_widget, text='تحديث منتج',
-                               command=save_updates).pack(pady=10, padx=10)
+                    customtkinter.CTkButton(top_level_widget, text='تحديث منتج', command=save_updates).pack(pady=10, padx=10)
                 else:
-                    messagebox.showerror(
-                        "Error", "No contract found for the selected ID")
+                    messagebox.showerror("Error", "No contract found for the selected ID")
             else:
                 messagebox.showerror("Error", "No contract selected")
 
@@ -2519,17 +2919,15 @@ class AddProductWindow(Frame):
                 messagebox.showerror('خطأ', 'يرجى عدم ترك الحقول فارغة')
                 return
             quantity = int(self.quantity_entry.get())
-            price = float(self.price_entry.get().strip())
+            price = float(self.price_entry.get())
             if not price:
                 messagebox.showerror('خطأ', 'يرجى عدم ترك الحقول فارغة')
                 return
 
             desc = self.desc_entry.get("1.0", tk.END).strip()
             barcode = self.barcode_entry.get()
-            inventory = InventoryModel(product=product, quantity=int(
-                quantity), price=float(price), desc=desc, barcode=barcode)
-            create_product(db, product=inventory.product, quantity=inventory.quantity,
-                           price=inventory.price, desc=inventory.desc, barcode=inventory.barcode)
+            inventory = InventoryModel(product=product, quantity=int(quantity), price=float(price), desc=desc, barcode=barcode)
+            create_product(db, product=inventory.product, quantity=inventory.quantity, price=inventory.price, desc=inventory.desc, barcode=inventory.barcode)
             messagebox.showinfo("نجاح العملية", "تم إدخال المنتج بنجاح!")
             self.clear_entries()
             self.populate_treeview()
@@ -2541,54 +2939,54 @@ class AddProductWindow(Frame):
 
     def show_validation_errors(self, e):
         errors = e.errors()
-        error_messages = "\n".join(
-            [f"{error['loc'][0]}: {error['msg']}" for error in errors])
+        error_messages = "\n".join([f"{error['loc'][0]}: {error['msg']}" for error in errors])
         messagebox.showerror("Validation Error", error_messages)
 
     def clear_entries(self):
         self.product_entry.delete(0, tk.END)
-        self.quantity_entry.delete(0, tk.END)
-        self.price_entry.delete(0, tk.END)
+        self.quantity_entry.set(0)
+        self.price_entry.set(0)
         self.desc_entry.delete('1.0', tk.END)
         self.barcode_entry.delete(0, tk.END)
 
 
-class AddCustomerWindow(Frame):
+
+class AddCustomerWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app, update_orders_callback):
         super().__init__(master)
         self.main_app = main_app
         self.update_orders_callback = update_orders_callback
 
-        ttk.Label(self, text='اسم العميل').grid(
+        customtkinter.CTkLabel(self, text='اسم العميل').grid(
             row=0, column=1, pady=10, padx=10)
-        self.customer_name_entry = tk.Entry(self)
+        self.customer_name_entry = customtkinter.CTkEntry(self)
         self.customer_name_entry.grid(row=0, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='اسم الشركة').grid(
+        customtkinter.CTkLabel(self, text='اسم الشركة').grid(
             row=1, column=1, pady=10, padx=10)
-        self.customer_business_entry = tk.Entry(self)
+        self.customer_business_entry = customtkinter.CTkEntry(self)
         self.customer_business_entry.grid(row=1, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='نوع النشاط').grid(
+        customtkinter.CTkLabel(self, text='نوع النشاط').grid(
             row=2, column=1, pady=10, padx=10)
-        self.business_type_entry = tk.Entry(self)
+        self.business_type_entry = customtkinter.CTkEntry(self)
         self.business_type_entry.grid(row=2, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='جوال العميل').grid(
+        customtkinter.CTkLabel(self, text='جوال العميل').grid(
             row=3, column=1, pady=10, padx=10)
-        self.cusomer_phone_entry = tk.Entry(self)
+        self.cusomer_phone_entry = customtkinter.CTkEntry(self)
         self.cusomer_phone_entry.grid(row=3, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='العنوان').grid(row=4, column=1, pady=10, padx=10)
-        self.cusomer_address_entry = tk.Entry(self)
+        customtkinter.CTkLabel(self, text='العنوان').grid(row=4, column=1, pady=10, padx=10)
+        self.cusomer_address_entry = customtkinter.CTkEntry(self)
         self.cusomer_address_entry.grid(row=4, column=0, pady=10, padx=10)
 
-        ttk.Button(self, text='إضافة عميل', command=self.add_customer_command).grid(
+        customtkinter.CTkButton(self, text='إضافة عميل', command=self.add_customer_command).grid(
             row=5, columnspan=2, pady=10, padx=10)
 
         cols = ('اسم العميل', 'اسم الشركة',
                 'نوع النشاط', 'رقم الجوال', 'العنوان')
-        self.tree = ttk.Treeview(self, bootstyle="primary")
+        self.tree = ttk.Treeview(self, bootstyle="primary")        
         self.tree['columns'] = cols
         self.tree.heading('#0', text='ID')
         self.tree.column('#0', width=50)
@@ -2596,8 +2994,12 @@ class AddCustomerWindow(Frame):
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor=tk.E)
         self.tree.grid(row=6, columnspan=2)
+        self.tree_scroll = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
+        self.tree.configure(yscrollcommand=self.tree_scroll.set)
+        self.tree.grid(row=6, column=0, columnspan=2, sticky='nsew', padx=20, pady=20)
+        self.tree_scroll.grid(row=6, column=2, sticky='ns')
 
-        self.update_button = ttk.Button(
+        self.update_button = customtkinter.CTkButton(
             self, text='تحديث', command=self.update_customer_data)
         self.update_button.grid(row=7, columnspan=2, padx=10, pady=10)
 
@@ -2626,37 +3028,37 @@ class AddCustomerWindow(Frame):
                     id=int(selected_contract_id)).first()
 
                 if customer:
-                    top_level_widget = Toplevel()
+                    top_level_widget = customtkinter.CTkToplevel()
                     top_level_widget.title("تحديث العميل")
 
-                    ttk.Label(top_level_widget, text='اسم العميل').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='اسم العميل').pack(
                         pady=10, padx=10)
-                    self.customer_name_entry = ttk.Entry(top_level_widget)
+                    self.customer_name_entry = customtkinter.CTkEntry(top_level_widget)
                     self.customer_name_entry.insert(0, customer.name)
                     self.customer_name_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='اسم الشركة').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='اسم الشركة').pack(
                         pady=10, padx=10)
-                    self.customer_business_entry = tk.Entry(top_level_widget)
+                    self.customer_business_entry = customtkinter.CTkEntry(top_level_widget)
                     self.customer_business_entry.insert(
                         0, customer.business_name)
                     self.customer_business_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='نوع النشاط').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='نوع النشاط').pack(
                         pady=10, padx=10)
-                    self.business_type_entry = tk.Entry(top_level_widget)
+                    self.business_type_entry = customtkinter.CTkEntry(top_level_widget)
                     self.business_type_entry.insert(0, customer.business_type)
                     self.business_type_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='جوال العميل').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='جوال العميل').pack(
                         pady=10, padx=10)
-                    self.cusomer_phone_entry = tk.Entry(top_level_widget)
+                    self.cusomer_phone_entry = customtkinter.CTkEntry(top_level_widget)
                     self.cusomer_phone_entry.insert(0, customer.phone_number)
                     self.cusomer_phone_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='العنوان').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='العنوان').pack(
                         pady=10, padx=10)
-                    self.cusomer_address_entry = tk.Entry(top_level_widget)
+                    self.cusomer_address_entry = customtkinter.CTkEntry(top_level_widget)
                     self.cusomer_address_entry.insert(0, customer.address)
                     self.cusomer_address_entry.pack(pady=10, padx=10)
 
@@ -2682,7 +3084,7 @@ class AddCustomerWindow(Frame):
                             messagebox.showerror(
                                 "Error", f"Failed to update customer: {str(e)}")
 
-                    ttk.Button(top_level_widget, text='تحديث عقد',
+                    customtkinter.CTkButton(top_level_widget, text='تحديث عقد',
                                command=save_updates).pack(pady=10, padx=10)
                 else:
                     messagebox.showerror(
@@ -2738,46 +3140,46 @@ class AddCustomerWindow(Frame):
         self.cusomer_address_entry.delete(0, tk.END)
 
 
-class AddMiantenence(Frame):
+class AddMiantenence(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
 
-        ttk.Label(self, text='معلومات الزيارة').grid(
+        customtkinter.CTkLabel(self, text='معلومات الزيارة').grid(
             row=0, column=1, pady=10, padx=10)
-        self.visit_info_combobox = ttk.Combobox(self, values=get_visit(db))
+        self.visit_info_combobox = customtkinter.CTkComboBox(self, values=get_visit(db))
         self.visit_info_combobox.grid(row=0, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='نوع النظام').grid(
+        customtkinter.CTkLabel(self, text='نوع النظام').grid(
             row=1, column=1, pady=10, padx=10)
-        self.sysetm_type_combobox = ttk.Combobox(
+        self.sysetm_type_combobox = customtkinter.CTkComboBox(
             self, values=['انذار', 'إطفاء', 'مراقبة'])
         self.sysetm_type_combobox.grid(row=1, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='القطعة المفحوصة').grid(
+        customtkinter.CTkLabel(self, text='القطعة المفحوصة').grid(
             row=2, column=1, pady=10, padx=10)
-        self.product_checked_entry = ttk.Entry(self)
+        self.product_checked_entry = customtkinter.CTkEntry(self)
         self.product_checked_entry.grid(row=2, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='حالة القطعة المفحوصة').grid(
+        customtkinter.CTkLabel(self, text='حالة القطعة المفحوصة').grid(
             row=3, column=1, pady=10, padx=10)
-        self.product_status_entry = ttk.Combobox(
+        self.product_status_entry = customtkinter.CTkComboBox(
             self, values=['سليم', 'غير سليم'])
         self.product_status_entry.grid(row=3, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text="تم الإصلاح:").grid(
+        customtkinter.CTkLabel(self, text="تم الإصلاح:").grid(
             row=4, column=1, pady=10, padx=10)
         self.completed_var = tk.BooleanVar()
-        self.completed_checkbox = ttk.Checkbutton(
+        self.completed_checkbox = customtkinter.CTkCheckBox(
             self, text="نعم", variable=self.completed_var)
         self.completed_checkbox.grid(row=4, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='السعر').grid(row=5, column=1, pady=10, padx=10)
-        self.product_price_entry = ttk.Spinbox(
-            self, from_=1, to=10000000000, format='%02.2f')
+        customtkinter.CTkLabel(self, text='السعر').grid(row=5, column=1, pady=10, padx=10)
+        self.product_price_entry = FloatSpinbox(
+            self)
         self.product_price_entry.grid(row=5, column=0, pady=10, padx=10)
-        ttk.Button(self, text='اضافة صيانة',
+        customtkinter.CTkButton(self, text='اضافة صيانة',
                    command=self.add_maintnance).grid(row=6, columnspan=2, pady=10, padx=10)
         cols = ('معلومات الزيارة', 'نوع النظام', 'القطعة المفحوصة',
                 'حالة القطعة المفحوصة', 'السعر', "تم الإصلاح")
@@ -2791,18 +3193,16 @@ class AddMiantenence(Frame):
             self.tree.grid(row=7, columnspan=2)
 
         # Add Update and Print buttons
-        self.update_button = ttk.Button(
+        self.update_button = customtkinter.CTkButton(
             self, text='تحديث', command=self.update_miantenence_data)
         self.update_button.grid(
             row=8, column=1, padx=10, pady=10)
-        self.pdf_button = ttk.Button(
+        self.pdf_button = customtkinter.CTkButton(
             self, text='طباعة محضر السلامة', command=self.print_maintenence)
         self.pdf_button.grid(row=8, column=0, padx=10, pady=10)
 
         # Populate Treeview with contract data
-
         self.populate_treeview()
-
         # Fetch contract data from the database and populate the Treeview
     def populate_treeview(self):
         # Clear the Treeview
@@ -2824,9 +3224,9 @@ class AddMiantenence(Frame):
     def clear_entries(self):
         # self.visit_info_combobox.delete(0,tk.END)
         # self.sysetm_type_combobox.delete(0,tk.END)
-        self.product_checked_entry.delete(0, tk.END)
-        self.product_status_entry.delete(0, tk.END)
-        self.product_price_entry.delete(0, tk.END)
+        self.product_checked_entry.delete(0,'end')
+        self.product_status_entry.set('')
+        self.product_price_entry.set(0.0)
 
     def add_maintnance(self):
         visit = self.visit_info_combobox.get()
@@ -2900,31 +3300,31 @@ class AddMiantenence(Frame):
                     id=int(selected_m_id)).first()
 
                 if maintenence:
-                    top_level_widget = Toplevel()
+                    top_level_widget = customtkinter.CTkToplevel()
                     top_level_widget.title("تحديث الصيانة")
 
-                    ttk.Label(top_level_widget, text='حالة القطعة المفحوصة').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='حالة القطعة المفحوصة').pack(
                         pady=10, padx=10)
-                    self.product_status_entry = ttk.Combobox(
+                    self.product_status_entry = customtkinter.CTkComboBox(
                         top_level_widget, values=['سليم', 'غير سليم'])
                     self.product_status_entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text="تم الإصلاح:").pack(
+                    customtkinter.CTkLabel(top_level_widget, text="تم الإصلاح:").pack(
                         pady=10, padx=10)
                     self.completed_var = tk.BooleanVar()
-                    self.completed_checkbox = ttk.Checkbutton(
+                    self.completed_checkbox = customtkinter.CTkCheckBox(
                         top_level_widget, text="نعم", variable=self.completed_var)
                     self.completed_checkbox.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='السعر').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='السعر').pack(
                         pady=10, padx=10)
-                    self.product_price_entry = ttk.Spinbox(
-                        top_level_widget, from_=1, to=10000000000, format='%02.2f')
+                    self.product_price_entry = FloatSpinbox(
+                        top_level_widget)
                     self.product_price_entry.pack(pady=10, padx=10)
 
-                    self.product_status_entry.insert(0, maintenence.status)
+                    self.product_status_entry.set(maintenence.status)
                     self.completed_var.set(maintenence.fixed)
-                    self.product_price_entry.insert(0, maintenence.cost)
+                    self.product_price_entry.set(maintenence.cost)
 
                     def save_updates():
                         status = self.product_status_entry.get()
@@ -2944,7 +3344,7 @@ class AddMiantenence(Frame):
                             messagebox.showerror(
                                 "Error", f"Failed to update maintenece: {str(e)}")
 
-                    ttk.Button(top_level_widget, text='تحديث صيانة',
+                    customtkinter.CTkButton(top_level_widget, text='تحديث صيانة',
                                command=save_updates).pack(pady=10, padx=10)
                 else:
                     messagebox.showerror(
@@ -2956,27 +3356,27 @@ class AddMiantenence(Frame):
             messagebox.showerror("Error", f"An error occurred: {str(e)}")
 
 
-class AddVisitsWindow(Frame):
+class AddVisitsWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app, update_mntc):
         super().__init__(master)
         self.main_app = main_app
         self.update_mntc = update_mntc
 
-        ttk.Label(self, text='اسم العميل').pack(pady=10, padx=10)
-        self.customer_name_entry = ttk.Combobox(
+        customtkinter.CTkLabel(self, text='اسم العميل').pack(pady=10, padx=10)
+        self.customer_name_entry = customtkinter.CTkComboBox(
             self, values=customers_have_contracts(db))
         self.customer_name_entry.pack(pady=10, padx=10)
 
-        ttk.Label(self, text='تاريخ الزيارة').pack(pady=10, padx=10)
+        customtkinter.CTkLabel(self, text='تاريخ الزيارة').pack(pady=10, padx=10)
         self.date_visit_entry = DateEntry(self, startdate=NOW)
         self.date_visit_entry.pack(pady=10, padx=10)
 
-        ttk.Label(self, text='المهندسين').pack(pady=10, padx=10)
+        customtkinter.CTkLabel(self, text='المهندسين').pack(pady=10, padx=10)
         self.engineers_entry = tk.Listbox(self, selectmode=tk.MULTIPLE)
         self.populate_engineers()  # Populate the engineers list
         self.engineers_entry.pack(pady=10, padx=10)
 
-        ttk.Button(self, text='إضافة زيارة',
+        customtkinter.CTkButton(self, text='إضافة زيارة',
                    command=self.add_visit_command).pack(pady=10, padx=10)
 
     def populate_engineers(self):
@@ -3019,33 +3419,33 @@ class AddVisitsWindow(Frame):
             self.destroy()
 
     def clear_entries(self):
-        self.customer_name_entry.delete(0, tk.END)
+        self.customer_name_entry.set('')
         self.engineers_entry.selection_clear(0, tk.END)
 
 
-class AddOrderWindow(Frame):
+class AddOrderWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
 
         self.main_app = main_app
-        ttk.Label(self, text='اسم العميل').pack(pady=10, padx=10)
-        self.customer_name_entry = ttk.Combobox(
-            self, values=self.get_customers())
+        customtkinter.CTkLabel(self, text='اسم العميل').pack(pady=10, padx=10)
+        self.customer_name_entry = customtkinter.CTkComboBox(
+            self, values=get_customer_names(db))
         self.customer_name_entry.pack(pady=10, padx=10)
 
-        ttk.Label(self, text='المنتج').pack(pady=10, padx=10)
+        customtkinter.CTkLabel(self, text='المنتج').pack(pady=10, padx=10)
         self.order_entry = tk.Listbox(self)
         self.order_entry.pack(pady=10, padx=10)
 
-        self.add_item_button = ttk.Button(
+        self.add_item_button = customtkinter.CTkButton(
             self, text="إضافة منتج", command=self.add_item)
         self.add_item_button.pack(pady=10, padx=10)
 
-        self.submit_button = ttk.Button(
+        self.submit_button = customtkinter.CTkButton(
             self, text="حفظ", command=self.submit_order)
         self.submit_button.pack(pady=10, padx=10)
 
-        self.print_button = ttk.Button(
+        self.print_button = customtkinter.CTkButton(
             self, text="طباعة الفاتورة", command=self.export_pdf)
         self.print_button.pack(pady=10, padx=10)
 
@@ -3063,7 +3463,7 @@ class AddOrderWindow(Frame):
         self.tree.pack(expand=True, padx=20, pady=20)
 
         self.populate_treeview()
-        ttk.Button(self, text="عرض الفاتورة",
+        customtkinter.CTkButton(self, text="عرض الفاتورة",
                    command=self.print_receipt).pack(pady=10, padx=10)
 
     def get_customers(self):
@@ -3102,7 +3502,6 @@ class AddOrderWindow(Frame):
 
             order = create_order(db, customer.id)
             self.current_order = order
-
             for item in self.order_entry.get(0, tk.END):
                 inventory_id, quantity = item.split(":")
                 add_order_item(db, order.id, int(inventory_id), int(quantity))
@@ -3184,7 +3583,7 @@ class AddOrderWindow(Frame):
             total_price_with_tax = total_price + tax
             receipt_details += f"Subtotal: {total_price}\nTax (15%): {tax}\nTotal Price (including tax): {total_price_with_tax}\n\n"
 
-            receipt_window = Toplevel(self)
+            receipt_window = customtkinter.CTkToplevel(self)
             receipt_window.title("Receipt")
 
             receipt_text = tk.Text(
@@ -3194,7 +3593,7 @@ class AddOrderWindow(Frame):
             receipt_text.insert("1.0", receipt_details)
 
 
-class OrderItemForm(Toplevel):
+class OrderItemForm(customtkinter.CTkToplevel):
     def __init__(self, master, listbox):
         super().__init__(master)
         self.listbox = listbox
@@ -3205,25 +3604,27 @@ class OrderItemForm(Toplevel):
             self, placeholder="البحث عن منتج...")
         self.search_entry.pack(padx=10, pady=10)
 
-        self.inventory_label = ttk.Label(self, text="اختر منتج")
+        self.inventory_label = customtkinter.CTkLabel(self, text="اختر منتج")
         self.inventory_label.pack(pady=10, padx=10)
 
-        self.inventory_combobox = ttk.Combobox(self)
-        self.inventory_items = get_inventory_items(db)
-        self.inventory_combobox['values'] = [
-            f"{i.id} - {i.product}" for i in self.inventory_items]
+        self.inventory_combobox = customtkinter.CTkComboBox(self,values=self.inventory_items())        
         self.inventory_combobox.pack(pady=10, padx=10)
 
-        self.quantity_label = ttk.Label(self, text="الكمية")
+        self.quantity_label = customtkinter.CTkLabel(self, text="الكمية")
         self.quantity_label.pack(pady=10, padx=10)
 
-        self.quantity_entry = tk.Entry(self)
+        self.quantity_entry = customtkinter.CTkEntry(self)
         self.quantity_entry.pack(pady=10, padx=10)
 
-        self.add_button = ttk.Button(self, text="إضافة", command=self.add_item)
+        self.add_button = customtkinter.CTkButton(self, text="إضافة", command=self.add_item)
         self.add_button.pack(pady=10, padx=10)
 
         self.search_entry.bind('<KeyRelease>', self.update_list)
+
+    def inventory_items(self):
+        self.inventory_items = get_inventory_items(db)
+        return [f"{i.id} - {i.product}" for i in self.inventory_items]
+        
 
     def update_list(self, event):
         search_term = self.search_entry.get()
@@ -3248,75 +3649,94 @@ class OrderItemForm(Toplevel):
             messagebox.showerror("Error", "Please select an inventory item")
 
 
-class AddContractWindow(Frame):
+class AddContractWindow(customtkinter.CTkFrame):
     def __init__(self, master, main_app):
         super().__init__(master)
-
+        
         self.main_app = main_app
+        
+
+        self.canvas = customtkinter.CTkCanvas(self)
+        self.scrollbar = customtkinter.CTkScrollbar(self, command=self.canvas.yview)
+        self.scrollable_frame = customtkinter.CTkFrame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
 
         self.create_widgets()
 
     def create_widgets(self):
-        ttk.Label(self, text='اسم العميل').grid(
+        
+        customtkinter.CTkLabel(self.scrollable_frame, text='اسم العميل').grid(
             row=0, column=1, pady=10, padx=10)
-        self.customer_name = ttk.Combobox(
-            self, values=self.get_only_customers())
+        self.customer_name = customtkinter.CTkComboBox(
+            self.scrollable_frame, values=self.get_only_customers())
         self.customer_name.grid(row=0, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='وصف العقد').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='وصف العقد').grid(
             row=1, column=1, pady=10, padx=10)
-        self.contract_desc = ttk.Combobox(self, values=['تركيب', 'صيانة'])
+        self.contract_desc = customtkinter.CTkComboBox(self.scrollable_frame, values=['تركيب', 'صيانة'])
         self.contract_desc.grid(row=1, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='قيمة العقد').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='قيمة العقد').grid(
             row=2, column=1, pady=10, padx=10)
-        self.total_payment = ttk.Spinbox(
-            self, from_=1, to=100000000, format='%02.2f')
+        self.total_payment = FloatSpinbox(
+            self.scrollable_frame)
         self.total_payment.grid(row=2, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='تاريخ بداية العقد').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='تاريخ بداية العقد').grid(
             row=3, column=1, pady=10, padx=10)
-        self.contract_start_date = DateEntry(self, startdate=NOW)
+        self.contract_start_date = DateEntry(self.scrollable_frame, startdate=NOW)
         self.contract_start_date.grid(row=3, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='تاريخ نهاية العقد').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='تاريخ نهاية العقد').grid(
             row=4, column=1, pady=10, padx=10)
-        self.contract_end_date = DateEntry(self, startdate=YEAR_AFTER)
+        self.contract_end_date = DateEntry(self.scrollable_frame, startdate=YEAR_AFTER)
         self.contract_end_date.grid(row=4, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='غرامة التأخير').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='غرامة التأخير').grid(
             row=5, column=1, pady=10, padx=10)
-        self.delay_fine_Entry = ttk.Spinbox(self, from_=1, to=1000000000)
+        self.delay_fine_Entry = FloatSpinbox(self.scrollable_frame)
         self.delay_fine_Entry.grid(row=5, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='مدة التنفيذ').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='مدة التنفيذ').grid(
             row=6, column=1, pady=10, padx=10)
-        self.completion_Entry = tk.Entry(self)
+        self.completion_Entry = customtkinter.CTkEntry(self.scrollable_frame)
         self.completion_Entry.grid(row=6, column=0, pady=10, padx=10)
 
-        ttk.Label(self, text='دورة الزيارات لكل').grid(
+        customtkinter.CTkLabel(self.scrollable_frame, text='دورة الزيارات لكل').grid(
             row=7, column=1, pady=10, padx=10)
-        self.contract_visits = ttk.Combobox(
-            self, values=['اسبوع', 'نصف شهر', 'شهر', 'شهرين', 'ثلاثة أشهر', 'ستة أشهر', 'سنة'])
+        self.contract_visits = customtkinter.CTkComboBox(
+            self.scrollable_frame, values=['اسبوع', 'نصف شهر', 'شهر', 'شهرين', 'ثلاثة أشهر', 'ستة أشهر', 'سنة'])
         self.contract_visits.grid(row=7, column=0, pady=10, padx=10)
-        ttk.Button(self, text='إضافة عقد',
+        customtkinter.CTkButton(self.scrollable_frame, text='إضافة عقد',
                    command=self.add_contract_command).grid(row=8, columnspan=2, pady=10, padx=10)
 
         cols = ('الوصف', 'قيمة العقد', 'بداية العقد',
                 'نهاية العقد', 'دورة الزيارات', 'غرامة التأخير')
-        self.tree = ttk.Treeview(self, bootstyle="primary")
+        self.tree = ttk.Treeview(self.scrollable_frame, bootstyle="primary")
         self.tree['columns'] = cols
         self.tree.heading('#0', text='ID')
         self.tree.column('#0', width=50)
         for col in cols:
             self.tree.heading(col, text=col)
             self.tree.column(col, anchor=tk.E)
-            self.tree.grid(row=9, columnspan=2, padx=20, pady=20)
+        self.tree.grid(row=9, columnspan=2, padx=20, pady=20)
 
         # Add Update and Print buttons
-        self.update_button = ttk.Button(
-            self, text='Update', command=self.update_contract)
-        ttk.Button(self, text='طباعة العقد',
+        self.update_button = customtkinter.CTkButton(
+            self.scrollable_frame, text='Update', command=self.update_contract)
+        customtkinter.CTkButton(self.scrollable_frame, text='طباعة العقد',
                    command=self.print_contract).grid(row=10, column=1, pady=10, padx=10)
         self.update_button.grid(row=10, column=0, padx=10, pady=10)
         self.populate_tree()
@@ -3405,67 +3825,67 @@ class AddContractWindow(Frame):
                     id=int(selected_contract_id)).first()
 
                 if contract:
-                    top_level_widget = Toplevel()
+                    top_level_widget = customtkinter.CTkToplevel()
                     top_level_widget.title("Update Contract")
 
-                    ttk.Label(top_level_widget, text='اسم العميل').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='اسم العميل').pack(
                         pady=10, padx=10)
-                    customer_name_widget = ttk.Combobox(
+                    customer_name_widget = customtkinter.CTkComboBox(
                         top_level_widget, values=get_customers)
                     # Pre-select the current customer name
                     customer_name_widget.set(contract.customer_id)
                     customer_name_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='وصف العقد').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='وصف العقد').pack(
                         pady=10, padx=10)
-                    contract_desc_widget = ttk.Combobox(
+                    contract_desc_widget = customtkinter.CTkComboBox(
                         top_level_widget, values=['تركيب', 'صيانة'])
                     # Pre-fill with the current description
                     contract_desc_widget.insert(0, contract.description)
                     contract_desc_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='قيمة العقد').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='قيمة العقد').pack(
                         pady=10, padx=10)
-                    total_payment_widget = ttk.Spinbox(
-                        top_level_widget, from_=1, to=100000000, format='%02.2f')
+                    total_payment_widget = FloatSpinbox(
+                        top_level_widget)
                     total_payment_widget.delete(0, tk.END)
                     # Pre-fill with the current total payment
                     total_payment_widget.insert(0, contract.total_payment)
                     total_payment_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='تاريخ بداية العقد').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='تاريخ بداية العقد').pack(
                         pady=10, padx=10)
                     contract_start_date_widget = DateEntry(
                         top_level_widget, startdate=contract.start_date)
                     # Pre-fill with the current start date
                     contract_start_date_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='تاريخ نهاية العقد').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='تاريخ نهاية العقد').pack(
                         pady=10, padx=10)
                     contract_end_date_widget = DateEntry(
                         top_level_widget, startdate=contract.end_date)
                     contract_end_date_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='مدة التنفيذ').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='مدة التنفيذ').pack(
                         pady=10, padx=10)
-                    completion_toplevel_Entry = tk.Entry(top_level_widget)
+                    completion_toplevel_Entry = customtkinter.CTkEntry(top_level_widget)
                     completion_toplevel_Entry.delete(0, tk.END)
                     completion_toplevel_Entry.insert(
                         0, contract.completion_period if contract.completion_period else '0')
                     completion_toplevel_Entry.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='عدد الزيارات').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='عدد الزيارات').pack(
                         pady=10, padx=10)
-                    contract_visits_widget = ttk.Combobox(top_level_widget, values=[
+                    contract_visits_widget = customtkinter.CTkComboBox(top_level_widget, values=[
                                                           'اسبوع', 'نصف شهر', 'شهر', 'شهرين', 'ثلاثة أشهر', 'ستة أشهر', 'سنة'])
                     # Pre-fill with the current visit cycle
                     contract_visits_widget.insert(0, contract.visit_cycle)
                     contract_visits_widget.pack(pady=10, padx=10)
 
-                    ttk.Label(top_level_widget, text='غرامة التأخير').pack(
+                    customtkinter.CTkLabel(top_level_widget, text='غرامة التأخير').pack(
                         pady=10, padx=10)
-                    delay_fine_spin = ttk.Spinbox(
-                        top_level_widget, from_=1, to=100000000, format='%02.2f')
+                    delay_fine_spin = FloatSpinbox(
+                        top_level_widget)
                     delay_fine_spin.delete(0, tk.END)
                     # Pre-fill with the current total payment
                     delay_fine_spin.insert(
@@ -3496,7 +3916,7 @@ class AddContractWindow(Frame):
                             messagebox.showerror(
                                 "Error", f"Failed to update contract: {str(e)}")
 
-                    ttk.Button(top_level_widget, text='تحديث عقد',
+                    customtkinter.CTkButton(top_level_widget, text='تحديث عقد',
                                command=save_updates).pack(pady=10, padx=10)
                 else:
                     messagebox.showerror(
@@ -3537,22 +3957,22 @@ class AddContractWindow(Frame):
             self.destroy()
 
     def clear_entries(self):
-        self.customer_name.delete(0, tk.END)
-        self.contract_desc.delete(0, tk.END)
-        self.total_payment.delete(0, tk.END)
-        self.contract_visits.delete(0, tk.END)
-        self.delay_fine_Entry.delete(0, tk.END)
+        self.customer_name.set('')
+        self.contract_desc.set('')
+        self.total_payment.set(0)
+        self.contract_visits.set('')
+        self.delay_fine_Entry.set(0)
 
 
-class SalesApplication(Toplevel):
+class SalesApplication(customtkinter.CTkToplevel):
     def __init__(self, main_app):
         super().__init__(main_app)
         self.title("إدارة المبيعات")
         self.main_app = main_app
-        self.main_frame = Frame(self)
+        self.main_frame = customtkinter.CTkFrame(self)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.tab_control = ttk.Notebook(self.main_frame, bootstyle="primary")
+        self.tab_control = customtkinter.CTkTabview(self.main_frame)
         self.tab_control.pack(expand=True, fill=tk.BOTH)
 
         # List of tabs and their associated windows
@@ -3570,8 +3990,10 @@ class SalesApplication(Toplevel):
             self.add_tab(tab_name, window_class)
 
     def add_tab(self, tab_name, window_class):
-        tab_frame = Frame(self.tab_control, bootstyle="primary")
-        self.tab_control.add(tab_frame, text=tab_name)
+        self.tab_control.add(tab_name)
+        tab_frame = customtkinter.CTkFrame(self.tab_control.tab(tab_name))
+        tab_frame.pack(fill=tk.BOTH, expand=True)
+        
 
         if tab_name == 'اضافة عميل':
             window_instance = window_class(
@@ -3581,28 +4003,25 @@ class SalesApplication(Toplevel):
                 tab_frame, self.main_app, self.update_mntc)
         else:
             window_instance = window_class(tab_frame, self.main_app)
-
         window_instance.pack(fill=tk.BOTH, expand=True)
         self.windows[tab_name] = window_instance
 
     def update_mntc(self):
         visit_window = self.windows.get('ادارة الصيانة')
         if visit_window:
-            visit_window.visit_info_combobox['values'] = get_visit(db)
+            visit_window.visit_info_combobox._values = get_visit(db)
 
     def update_customers(self):
         # Update customers in AddOrderWindow
-        order_window = self.windows.get('إدارة الطلبات')
+        order_window = self.windows.get('إدارة الطلبات')        
+        contract_window = self.windows.get('إدارة العقود')
+
         if order_window:
-            order_window.customer_name_entry['values'] = order_window.get_customers(
-            )
+            order_window.customer_name_entry.configure(values=get_customer_names(db))
 
         # Update customers in AddContractWindow
-        contract_window = self.windows.get('إدارة العقود')
         if contract_window:
-            contract_window.customer_name['values'] = contract_window.get_only_customers(
-            )
-
+            contract_window.customer_name.configure(values=get_only_customers(db))
     def get_tab_names(self):
         return [self.tab_control.tab(index, "text") for index in range(self.tab_control.index("end"))]
 

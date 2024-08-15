@@ -153,6 +153,8 @@ employees = [
     }
 ]
 
+
+
 # Print the employees dictionary
 
 
@@ -365,7 +367,7 @@ cars = [
         "cost": 24000,
         "plate_letters": "ABC",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Honda",
@@ -375,7 +377,7 @@ cars = [
         "cost": 22000,
         "plate_letters": "DEF",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Ford",
@@ -385,7 +387,7 @@ cars = [
         "cost": 30000,
         "plate_letters": "GHI",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Chevrolet",
@@ -395,7 +397,7 @@ cars = [
         "cost": 25000,
         "plate_letters": "JKL",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Nissan",
@@ -405,7 +407,7 @@ cars = [
         "cost": 23000,
         "plate_letters": "MNO",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Hyundai",
@@ -415,7 +417,7 @@ cars = [
         "cost": 27000,
         "plate_letters": "PQR",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "BMW",
@@ -425,7 +427,7 @@ cars = [
         "cost": 35000,
         "plate_letters": "STU",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Mercedes-Benz",
@@ -435,7 +437,7 @@ cars = [
         "cost": 40000,
         "plate_letters": "VWX",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Audi",
@@ -445,7 +447,7 @@ cars = [
         "cost": 38000,
         "plate_letters": "YZA",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Tesla",
@@ -455,7 +457,7 @@ cars = [
         "cost": 50000,
         "plate_letters": "BCD",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Kia",
@@ -465,7 +467,7 @@ cars = [
         "cost": 23000,
         "plate_letters": "EFG",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Volkswagen",
@@ -475,7 +477,7 @@ cars = [
         "cost": 24000,
         "plate_letters": "HIJ",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Subaru",
@@ -485,7 +487,7 @@ cars = [
         "cost": 21000,
         "plate_letters": "KLM",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Mazda",
@@ -495,7 +497,7 @@ cars = [
         "cost": 28000,
         "plate_letters": "NOP",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Lexus",
@@ -505,7 +507,7 @@ cars = [
         "cost": 35000,
         "plate_letters": "QRS",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Jaguar",
@@ -515,7 +517,7 @@ cars = [
         "cost": 42000,
         "plate_letters": "TUV",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Acura",
@@ -525,7 +527,7 @@ cars = [
         "cost": 37000,
         "plate_letters": "WXY",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Infiniti",
@@ -535,7 +537,7 @@ cars = [
         "cost": 39000,
         "plate_letters": "ZAB",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Cadillac",
@@ -545,7 +547,7 @@ cars = [
         "cost": 35000,
         "plate_letters": "CDE",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     },
     {
         "make": "Volvo",
@@ -555,7 +557,7 @@ cars = [
         "cost": 36000,
         "plate_letters": "FGH",
         "plate_numbers": random.randint(1000, 9999),
-        "buy_date": str(random_date())
+        "buy_date": random_date()
     }
 ]
 
@@ -583,21 +585,29 @@ def generate_description():
 
 
 # List to store product information
-# products = []
+products = []
 
 # Generate 100 safety tools
-# for _ in range(1000):
-#     product = {
-#         "product": generate_safety_tool_name(),
-#         "quantity": random.randint(1, 100),
-#         "price": round(random.uniform(10.0, 500.0), 2),
-#         "desc": generate_description(),
-#         "barcode": generate_barcode()
-#     }
-#     products.append(product)
+for _ in range(100):
+    product = {
+        "product": generate_safety_tool_name(),
+        "quantity": random.randint(1, 100),
+        "price": round(random.uniform(10.0, 500.0), 2),
+        "desc": generate_description(),
+        "barcode": generate_barcode()
+    }
+    products.append(product)
 
 
-data = load_json_data('data.json')
-# for doc in data.company_info.documents:
-#     if doc.name == 'fonts':
-#         print(doc.path)
+# for c in customers:
+#     create_customer(session,c['name'],c['business_name'],c['business_type'],c['phone_number'],c['address'])
+
+# create_employee(session,'احمد محمد الوحيشي',datetime(1982,6,6),'0531380577','admin',3000)
+# create_users(session,'ahmed391','ama89999@gmail.com',hash_password('Ahmd605108'),1)
+# for product in products:
+#     create_product(session,product['product'],product['quantity'],product['price'],product['desc'],product['barcode'])
+# for employee in employees:
+#     create_employee(session,employee['fullname'],datetime.strptime(employee['birthdate'],'%Y-%m-%d'),employee['phone_number'],employee['career'],employee['salary'])
+
+# for car in cars:
+#     create_car(session,car['make'],car['model'],car['year'],car['driving_range'],car['cost'],car['plate_letters'],car['plate_numbers'],car['buy_date']) 

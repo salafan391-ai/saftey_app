@@ -27,18 +27,21 @@ def get_inventory(id):
 class Product:
     def __init__(self, items):
         self.items = items
-        self.total = 0
-        self.total_no_tax = 0
-        self.total_tax = 0
-        self.quantity = 0
+        self.total_price = 0
+        self.tax = 0
+        self.total_price_with_tax = 0
+
         self.calculate()
 
     def calculate(self):
         for item in self.items:
-            self.total_no_tax += item.inventory.price
-            self.total_tax += item.inventory.price*.15
-            self.total = + self.total_no_tax+self.total_tax
-            self.quantity += item.quantity
+            quantity = item.quantity
+            price = item.inventory.price
+            total_item_price = quantity * price
+            self.total_price += total_item_price
+        self.tax =+ self.total_price * 0.15
+        self.total_price_with_tax =+ self.total_price + self.tax
+
 
 
 class CreatePdf:
@@ -144,15 +147,15 @@ class CreatePdf:
         self.draw_arabic_text("الإجمالي الخاضع للضريبة:",
                               self.width - 350, y - 10, 14)
         self.draw_arabic_text(
-            f"{product.total_no_tax:.1f}", self.width - 500, y - 10, 14)
+            f"{product.total_price:.1f}", self.width - 500, y - 10, 14)
         # إجمالي الضريبة
         self.draw_arabic_text("إجمالي الضريبة:", self.width - 400, y - 30, 14)
-        self.draw_arabic_text(f"{product.total_tax:.1f}",
+        self.draw_arabic_text(f"{product.tax:.1f}",
                               self.width - 500, y - 30, 14)
         # المجموع الكلي
         self.draw_arabic_text("المجموع الكلي:", self.width - 400, y - 50, 14)
 
-        self.draw_arabic_text(f"{product.total:.1f}",
+        self.draw_arabic_text(f"{product.total_price_with_tax:.1f}",
                               self.width - 500, y - 50, 14)
 
         # حفظ الفاتورة
