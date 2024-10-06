@@ -266,6 +266,7 @@ class MainApplication(customtkinter.CTk):
         self.buttons = {}
         self.create_widgets()
         self.check_users()
+        
 
         
         self.db_session = db_session()  # Make sure this is a function that returns a session
@@ -2104,7 +2105,8 @@ class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
         # Button to add the detection
         add_button = customtkinter.CTkButton(self, text="حفظ", command=self.add_detection)
         add_button.grid(row=5, column=0, pady=10)
-        customtkinter.CTkButton(self, text="Export as PNG", command=self.print_report).grid(row=5,column=1)
+        self.pdf_button = customtkinter.CTkButton(self, text="Export as PNG", command=self.print_report,state=DISABLED)
+        self.pdf_button.grid(row=5,column=1)
 
     def on_click(self, event):
         x, y = event.x, event.y
@@ -2134,8 +2136,7 @@ class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
         if note.strip():
             # Save the note with its coordinates
             num = next(self.num_gen)
-            self.notes += f"{num} {note}\n"
-
+            self.notes += f"{num} {note}  "
             # self.label.config(text=self.notes,background='white',border=12)
             # Display the note on the canvas (as a marker or text)
             text_id = self.canvas.create_text(x, y, text=f"📍{num}", fill="red", font=("Arial", 16))
@@ -2144,25 +2145,26 @@ class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
             self.canvas.tag_raise(text_id,rect_id)
         form.destroy()
 
-    def export_canvas(self):
-        # Save the canvas content to a postscript file in memory (without saving to disk)
-        postscript_file = 'out_put.ps'
-        if postscript_file:
-            self.canvas.postscript(file=postscript_file, colormode='color')
-            img = Image.open(postscript_file)
-            print("Canvas exported and image created")
-            return img
-
-
+    def export_canvas(self,output_file):
+    # Save the canvas content to a PostScript file
+        ps_data = self.canvas.postscript(colormode='color')
+        
+        # Convert PostScript data to an image
+        ps_image = Image.open(io.BytesIO(ps_data.encode('utf-8')))
+        
+        # Save the image to a file
+        ps_image.save(output_file)
 
     def print_report(self):
-        image = self.export_canvas()  # This gets the image directly
+
+        image = f"{self.dist}{self.image_path}"
         if image:
-            pdf = CreatePdf(f'{self.car_id_entry.get()}')
+            print(image)
+
+            pdf = CreatePdf(f'{self.image_path}')
             pdf.draw_car_blueprint(image)
             pdf.header_footer()
             pdf.save_pdf()
-
 
 
 
@@ -2176,16 +2178,20 @@ class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
             car = self.car_id_entry.get()
             driving_range = self.driving_range_entry.get()
             text = self.notes
-            car_data = db.query(Car).filter_by(id=car.split('-')[0]).first()
-            car_id = car_data.id
+            self.car_data = db.query(Car).filter_by(id=car.split('-')[0]).first()
+            car_id = self.car_data.id
             michanic = self.michanic_entry.get()
             status = self.status_entry.get()
             is_valid = True
+
 
        
             # Ensure proper data types
             car_id = int(car_id)
             driving_range = int(driving_range)
+            self.dist = 'static/img_byets/'
+            self.image_path = f"{datetime.now()}-{self.car_data.model}-{self.car_data.make}-{self.car_data.year}.png"
+
 
             create_car_parts_detection(
                 db,
@@ -2194,12 +2200,14 @@ class AddCarPartsDetectionWindow(customtkinter.CTkFrame):
                 notes=text,
                 status=status,
                 is_valid=is_valid,
-                michanic=michanic
+                michanic=michanic,
+                images=f"{self.dist}{self.image_path}"
             )
             messagebox.showinfo(
                 "Success", "Car parts detection added successfully!")
+            self.export_canvas(f"{self.dist}{self.image_path}")
+            self.pdf_button.configure(state=NORMAL)
             self.update_driver()
-            self.destroy()
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -2245,7 +2253,7 @@ class AddCarDriverWindow(customtkinter.CTkFrame):
         # Button to add the driver
         add_button = customtkinter.CTkButton(
             self, text="تعيين سائق مركبة", command=self.add_driver)
-        add_button.grid(row=6, columnspan=2, pady=10)
+        add_button.grid(row=6, column=0, pady=10)
 
         delete_button = customtkinter.CTkButton(
             self, text='إزالة سائق مركبة', command=self.delete_driver)
@@ -2253,6 +2261,9 @@ class AddCarDriverWindow(customtkinter.CTkFrame):
         update_button = customtkinter.CTkButton(
             self, text='تحديث سائق مركبة', command=self.update_car_driver)
         update_button.grid(row=8, column=1, padx=10, pady=10)
+
+        print_button = customtkinter.CTkButton(self,text='طباعة التقرير',command=self.print_full_report)
+        print_button.grid(row=6,column=1)
 
         cols = ('الموظف', 'اسم المركبة', 'رقم رخصة القيادة',
                 'تاريخ انتهاء رخصة القيادة', 'تاريخ استلام المركبة', 'الحالة')
@@ -2376,6 +2387,22 @@ class AddCarDriverWindow(customtkinter.CTkFrame):
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
+    def print_full_report(self):
+        try:
+            selected_item = self.tree.selection()
+            if selected_item:
+                selected_driver_id = self.tree.item(selected_item[0],'text')
+                driver = db.query(CarDriver).filter_by(id=int(selected_driver_id)).first()
+                if driver:
+                    pdf = CreatePdf(f"{datetime.now()}-{driver.employee.fullname}")
+                    pdf.draw_car_blueprint(driver.car_parts_detection.images)
+                    pdf.add_data(driver.car_parts_detection.notes)
+                    pdf.header_footer()
+                    pdf.save_pdf()
+                    messagebox.showinfo('success','تم طباعة التقرير بنجاح')
+        except Exception as e:
+            print(e)
+
     def update_car_driver(self):
         try:
             # Get the selected contract from the Treeview and allow the user to update its details
@@ -2417,7 +2444,7 @@ class AddCarDriverWindow(customtkinter.CTkFrame):
 
                     self.driver_license_number_entry.insert(
                         0, driver.lisince_number)
-                    self.detection_id_entry.insert(0, driver.detection_id)
+                    self.detection_id_entry.set(driver.detection_id)
 
                     def save_updates():
                         license_number = self.driver_license_number_entry.get()
@@ -2493,7 +2520,6 @@ class CarApplication(customtkinter.CTkToplevel):
             window_instance = frame_class(tab_frame, self.update_detection)
         else:
             window_instance = frame_class(tab_frame)
-        
         # Pack the frame
         window_instance.pack(fill=tk.BOTH, expand=True)
         self.windows[tab_text] = window_instance

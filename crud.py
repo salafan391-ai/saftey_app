@@ -432,7 +432,7 @@ def create_car_license(db: Session, car_id: int, serial_number: str, lisince_exp
         raise e
 
 
-def create_car_parts_detection(db: Session, car_id: int, driving_range: int, notes: str, status: str, is_valid: bool,michanic:str):
+def create_car_parts_detection(db: Session, car_id: int, driving_range: int, notes: str, status: str, is_valid: bool,michanic:str,images:str):
     try:
         car_parts_detection = CarPartsDetection(
             car_id=car_id,
@@ -440,7 +440,8 @@ def create_car_parts_detection(db: Session, car_id: int, driving_range: int, not
             notes=notes,
             status=status,
             is_valid=is_valid,
-            michanic = michanic
+            michanic = michanic,
+            images=images
         )
         db.add(car_parts_detection)
         db.commit()

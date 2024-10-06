@@ -12,6 +12,9 @@ from models import CarPartsDetection
 from utils import load_data
 from reportlab.lib.utils import ImageReader
 
+
+
+
 class CreatePdf:
     def __init__(self, output_file):
         self.output_file = f"{output_file}.pdf"
@@ -20,9 +23,6 @@ class CreatePdf:
         self.set_up_font()
         self.db = db_session()
 
-    def get_data(self, id):
-        car = self.db.get(CarPartsDetection, id)
-        return car
 
     def set_up_font(self):
         # Register the Arabic font
@@ -37,8 +37,13 @@ class CreatePdf:
         text_width = self.c.stringWidth(bidi_text, 'Arabic', font_size)
         self.c.drawString(x - text_width, y, bidi_text)
 
-    def add_data(self, notes):
-        self.draw_arabic_text(notes, 500, 290)
+    def add_data(self,notes):
+        y = 270
+        self.draw_arabic_text('ملاحظات', 550, 290)
+        notes = notes.split('  ')
+        for note in notes:
+            self.draw_arabic_text(note, 550, y)
+            y-=20
 
     def header_footer(self):
         header = get_images('header', load_data)
@@ -53,14 +58,9 @@ class CreatePdf:
         self.c.restoreState()
 
     def draw_car_blueprint(self, img):
-        img_buffer = io.BytesIO()
-        img.save(img_buffer, format='PNG')
-        img_buffer.seek(0)
-        image_reader = ImageReader(img_buffer)
-        self.c.drawImage(image_reader, 70, 300, width=500, height=300)
+        self.c.drawImage(img, 70, 300, width=500, height=300)
 
     def save_pdf(self):
         self.c.showPage()
         self.c.save()
-
 

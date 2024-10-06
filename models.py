@@ -327,6 +327,7 @@ class CarPartsDetection(Base):
     notes = Column(Text, nullable=True)
     is_valid = Column(Boolean, nullable=True, default=True)
     michanic = Column(String,nullable=False)
+    images = Column(String,nullable=True)
 
 
 class CarDriver(Base):
